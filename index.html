@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Initial D AE86 Digital Speedometer - JG:VRP</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:ital,wght@0,600;0,700;1,700;1,800&family=Orbitron:wght@700;900&family=Share+Tech+Mono&family=Noto+Sans+JP:wght@700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body id="app-body" style="background-color: transparent !important; background: transparent !important;">
+
+  <!-- ======================================================================= -->
+  <!-- MAIN SPEEDOMETER CLUSTER (COMPACT TWO-COLUMN LAYOUT)                    -->
+  <!-- ======================================================================= -->
+  <main id="speedo-cluster">
+    
+    <!-- Top Header Bar: Fujiwara Tofu Shop + Status Dialogue -->
+    <div class="cluster-header">
+      <div class="tofu-plate">
+        <span class="dot"></span>
+        <span class="font-jp text-jp">藤原とうふ店 <span style="font-size: 9px; opacity: 0.85;">(自家用)</span></span>
+        <span class="sub-badge">AE86</span>
+      </div>
+
+      <div class="status-banner">
+        <span id="status-dot" class="status-dot"></span>
+        <span id="dialogue-jp" class="font-jp dialogue-jp">「とうふ配達中」</span>
+        <span class="dialogue-sep">|</span>
+        <span id="dialogue-en" class="dialogue-en">TOFU DELIVERY MODE</span>
+      </div>
+    </div>
+
+    <!-- Main Instrument Cluster Frame -->
+    <div class="cluster-body">
+      <!-- Interactive Resize Grip Triangle -->
+      <div id="resize-grip" class="resize-grip" title="Tarik / Geser segitiga ini untuk ubah ukuran (Drag to resize)">
+        <svg viewBox="0 0 16 16"><polygon points="0,0 16,0 0,16"/></svg>
+      </div>
+      <div class="cluster-trim-top"></div>
+      <div class="scanlines"></div>
+
+      <!-- =================================================================== -->
+      <!-- COLUMN 1 (LEFT): TACHOMETER, WARNING LIGHTS, FUEL, HEALTH, ODOMETER -->
+      <!-- =================================================================== -->
+      <section class="col-tachometer">
+        
+        <!-- 1. Warning Indicators Row (Above Tachometer - 6 Authentic Automotive Icons) -->
+        <div class="tacho-indicators-row">
+          <!-- 1. Left Turn Signal -->
+          <div id="ind-left" class="ind-icon" title="Left Indicator">
+            <svg viewBox="0 0 24 24">
+              <path d="M6 12l7.5-6.5a1 1 0 0 1 1.5.8v3.7h5a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1h-5v3.7a1 1 0 0 1-1.5.8L6 12z"/>
+            </svg>
+          </div>
+          <!-- 2. Automotive Headlights (State 1: Low Beam Downward Rays / State 2: High Beam Straight Rays) -->
+          <div id="ind-lights" class="ind-icon" title="Headlights">
+            <!-- Low Beam: Angled Downward Rays (ISO 2575) -->
+            <svg id="svg-light-low" viewBox="0 0 24 24">
+              <path d="M13 6c3.3 0 6 2.7 6 6s-2.7 6-6 6V6z"/>
+              <line x1="10" y1="8" x2="3.5" y2="11.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+              <line x1="10" y1="12" x2="3.5" y2="15.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+              <line x1="10" y1="16" x2="3.5" y2="19.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+            </svg>
+            <!-- High Beam / Dim: Straight Horizontal Rays (ISO 2575) -->
+            <svg id="svg-light-high" viewBox="0 0 24 24" style="display: none;">
+              <path d="M13 6c3.3 0 6 2.7 6 6s-2.7 6-6 6V6z"/>
+              <line x1="10" y1="8" x2="3" y2="8" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+              <line x1="10" y1="12" x2="3" y2="12" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+              <line x1="10" y1="16" x2="3" y2="16" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <!-- 3. Automotive Seatbelt Warning (Passenger with Diagonal Chest Strap Sash) -->
+          <div id="ind-seatbelt" class="ind-icon" title="Seatbelts">
+            <svg viewBox="0 0 24 24">
+              <!-- Passenger Head -->
+              <circle cx="10" cy="5" r="2.5"/>
+              <!-- Seat Back & Base Frame -->
+              <path d="M18 3v15a3 3 0 0 1-3 3H8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              <!-- Passenger Torso Profile -->
+              <path d="M8 10.5c0-1.4 1.1-2.5 2.5-2.5h.5c1.4 0 2.5 1.1 2.5 2.5v5c0 1.1-.9 2-2 2h-1.5c-1.1 0-2-.9-2-2v-5z" opacity="0.3"/>
+              <!-- 3-Point Belt Sash Across Torso & Lap Strap -->
+              <line x1="7.5" y1="8.5" x2="15.5" y2="17.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+              <line x1="7.5" y1="17.5" x2="15.5" y2="17.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <!-- 4. Vehicle Door Lock Indicator (Padlock) -->
+          <div id="ind-lock" class="ind-icon" title="Door Locks">
+            <svg id="svg-lock-closed" viewBox="0 0 24 24">
+              <path d="M7.5 10V6.5a4.5 4.5 0 0 1 9 0V10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+              <rect x="5" y="10" width="14" height="11" rx="2.5"/>
+              <circle cx="12" cy="14.5" r="1.3" style="fill: var(--icon-bg, #181c26);"/>
+              <line x1="12" y1="14.5" x2="12" y2="17.5" stroke="var(--icon-bg, #181c26)" stroke-width="1.3" stroke-linecap="round"/>
+            </svg>
+            <svg id="svg-lock-open" viewBox="0 0 24 24" style="display: none;">
+              <path d="M7.5 10V5a4.5 4.5 0 0 1 9 0v2" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+              <rect x="5" y="10" width="14" height="11" rx="2.5"/>
+              <circle cx="12" cy="14.5" r="1.3" style="fill: var(--icon-bg, #181c26);"/>
+              <line x1="12" y1="14.5" x2="12" y2="17.5" stroke="var(--icon-bg, #181c26)" stroke-width="1.3" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <!-- 5. Automotive Check Engine Silhouette Block -->
+          <div id="ind-engine" class="ind-icon" title="Check Engine / State">
+            <svg viewBox="0 0 24 24">
+              <path d="M22 13V9h-2V7a1 1 0 0 0-1-1h-4V4.5a.5.5 0 0 0-.5-.5h-3a.5.5 0 0 0-.5.5V6H7a1 1 0 0 0-1 1v2H4v4h2v4a1 1 0 0 0 1 1h2v1.5a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5V18h3v1.5a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5V18h1a1 1 0 0 0 1-1v-4h2zm-5 3H7V8h10v8z"/>
+              <rect x="10" y="10" width="4" height="4" rx="0.5" opacity="0.6"/>
+            </svg>
+          </div>
+          <!-- 6. Right Turn Signal -->
+          <div id="ind-right" class="ind-icon" title="Right Indicator">
+            <svg viewBox="0 0 24 24">
+              <path d="M18 12l-7.5-6.5a1 1 0 0 0-1.5.8v3.7h-5a1 1 0 0 0-1 1v2a1 1 0 0 0 1 1h5v3.7a1 1 0 0 0 1.5.8L18 12z"/>
+            </svg>
+          </div>
+        </div>
+
+        <!-- 2. Main Tachometer Box (24-Segment LED, 1-11 Scale, RPM readout) -->
+        <div class="tacho-main-box">
+          <div class="tacho-top">
+            <div style="display: flex; align-items: baseline;">
+              <span class="tacho-title">TACHOMETER</span>
+              <span class="tacho-scale-label">x1000 RPM</span>
+            </div>
+            <div id="shift-light-pill" class="shift-pill">SHIFT UP</div>
+          </div>
+
+          <!-- Numbers Scale (1 to 11 x1000 RPM) -->
+          <div class="rpm-scale font-mono">
+            <span class="scale-green">1</span>
+            <span class="scale-green">2</span>
+            <span class="scale-green">3</span>
+            <span class="scale-green">4</span>
+            <span class="scale-amber">5</span>
+            <span class="scale-amber">6</span>
+            <span class="scale-amber">7</span>
+            <span class="scale-orange">8</span>
+            <span class="scale-red">9</span>
+            <span class="scale-red">10</span>
+            <span class="scale-red" style="text-decoration: underline;">11</span>
+          </div>
+
+          <!-- 24-Segment LED Tachometer Bar -->
+          <div id="rpm-bar" class="rpm-bar-track"></div>
+
+          <!-- Bottom RPM Readout & 105 KM/H Chime Indicator -->
+          <div class="tacho-bottom">
+            <div class="rpm-readout">
+              <span id="rpm-numeric" class="font-mono rpm-numeric">0000</span>
+              <span class="rpm-unit">RPM</span>
+            </div>
+
+            <div id="chime-indicator" class="chime-indicator">
+              <svg viewBox="0 0 24 24"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>
+              <span>105 KM/H CHIME</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. Submeters (Fuel, Engine Health, and Odometer Integrated Below Tachometer) -->
+        <div class="tacho-submeters">
+          <div class="meter-row">
+            <!-- Fuel Bar -->
+            <div>
+              <div class="bar-header">
+                <span class="bar-title fuel-title">
+                  <svg viewBox="0 0 24 24"><path d="M19.77 7.23l.01-.01-3.72-3.72L15 4.56l2.11 2.11c-.94.36-1.61 1.26-1.61 2.33a2.5 2.5 0 0 0 2.5 2.5c.36 0 .69-.08 1-.21v7.21a1.5 1.5 0 0 1-3 0V14a3 3 0 0 0-3-3h-1V5a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-4h1a1 1 0 0 1 1 1v4.5a3.5 3.5 0 0 0 7 0V9a2.5 2.5 0 0 0-.23-1.77zM4 11V5h6v6H4z"/></svg>
+                  FUEL
+                </span>
+                <span id="fuel-pct" class="font-mono bar-value">100%</span>
+              </div>
+              <div id="fuel-bar" class="bar-track"></div>
+            </div>
+
+            <!-- Health Bar -->
+            <div>
+              <div class="bar-header">
+                <span class="bar-title">
+                  <svg viewBox="0 0 24 24"><path d="M15 13V5a3 3 0 0 0-6 0v8a5 5 0 1 0 6 0zm-3 7a3 3 0 0 1-1.5-5.6V5a1.5 1.5 0 0 1 3 0v9.4A3 3 0 0 1 12 20z"/></svg>
+                  HEALTH
+                </span>
+                <span id="engine-pct" class="font-mono bar-value" style="color: #00f59b;">100%</span>
+              </div>
+              <div id="engine-bar" class="bar-track"></div>
+            </div>
+          </div>
+
+          <!-- Digital Odometer -->
+          <div class="odo-container">
+            <span class="odo-label">ODO // TRIP</span>
+            <div class="font-mono odo-digits">
+              <span id="odo-digits">086240.5</span> <span id="odo-unit" class="odo-unit">KM</span>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- =================================================================== -->
+      <!-- COLUMN 2 (RIGHT): TAKUMI + WATER CUP (TOP) & SPEED + GEAR (BOTTOM)  -->
+      <!-- =================================================================== -->
+      <section class="col-speed-wrap">
+        
+        <!-- TOP: Takumi Reactive Portrait & Akina Water Cup G-Force -->
+        <div class="char-water-top">
+          <!-- Akina Paper Water Cup G-Force Indicator -->
+          <div class="water-cup-box" title="Akina Tofu Delivery Water Cup">
+            <span class="cup-title">WATER<br>CUP</span>
+            
+            <div class="cup-svg-wrap">
+              <svg viewBox="0 0 40 80">
+                <rect x="2" y="4" width="36" height="5" rx="2" fill="#e2e8f0" />
+                <polygon points="5,9 35,9 31,75 9,75" fill="#1e293b" stroke="#cbd5e1" stroke-width="2.5"/>
+                <defs>
+                  <clipPath id="cup-clip">
+                    <polygon points="6,10 34,10 30,74 10,74" />
+                  </clipPath>
+                </defs>
+                <g clip-path="url(#cup-clip)">
+                  <g id="water-slosh-group" style="transform-origin: 20px 35px; transition: transform 0.12s ease-out;">
+                    <rect id="water-rect" x="-15" y="24" width="70" height="60" fill="#00e5ff" opacity="0.85" />
+                    <line x1="-15" y1="24" x2="55" y2="24" stroke="#ffffff" stroke-width="2" />
+                  </g>
+                </g>
+                <circle id="spill-drop-1" cx="4" cy="2" r="2.5" fill="#00e5ff" opacity="0" style="transition: opacity 0.15s;" />
+                <circle id="spill-drop-2" cx="37" cy="0" r="2" fill="#00e5ff" opacity="0" style="transition: opacity 0.15s;" />
+              </svg>
+            </div>
+
+            <span id="cup-status" class="cup-status">SAFE</span>
+          </div>
+
+          <!-- Takumi Fujiwara Reactive Manga Cut-In Frame -->
+          <div id="char-frame" class="char-frame manga-halftone">
+            <div id="char-speedlines" class="speedlines-overlay" style="position: absolute; inset: 0; opacity: 0; pointer-events: none;"></div>
+
+            <div class="char-svg-wrap">
+              <!-- Takumi SVG -->
+              <svg id="svg-takumi" viewBox="0 0 120 120">
+                <circle id="takumi-aura" cx="60" cy="65" r="48" fill="url(#eurobeatGrad)" opacity="0" />
+                <defs>
+                  <radialGradient id="eurobeatGrad">
+                    <stop offset="0%" stop-color="#ff9d00" stop-opacity="0.55"/>
+                    <stop offset="100%" stop-color="#ff1e42" stop-opacity="0"/>
+                  </radialGradient>
+                </defs>
+                <!-- Collar & Shirt -->
+                <path d="M44,88 L44,115 L76,115 L76,88 Z" fill="#e5c29f" stroke="#111" stroke-width="2"/>
+                <path d="M22,120 L38,95 L60,108 L82,95 L98,120 Z" fill="#f8fafc" stroke="#111" stroke-width="2.5"/>
+                <path d="M45,98 L60,114 L75,98" fill="none" stroke="#2563eb" stroke-width="3"/>
+                <!-- Face -->
+                <path d="M33,42 C32,68 42,88 60,93 C78,88 88,68 87,42 Z" fill="#f6d7b8" stroke="#111" stroke-width="2.5"/>
+                <path d="M37,68 L43,71 M38,73 L45,76 M83,68 L77,71 M82,73 L75,76" stroke="#c59b76" stroke-width="1.5" stroke-linecap="round"/>
+
+                <!-- Face A: Chill Mode -->
+                <g id="takumi-face-chill">
+                  <path d="M39,49 Q47,47 54,50" fill="none" stroke="#2b1d12" stroke-width="2.2" stroke-linecap="round"/>
+                  <path d="M66,50 Q73,47 81,49" fill="none" stroke="#2b1d12" stroke-width="2.2" stroke-linecap="round"/>
+                  <path d="M40,56 L54,56" stroke="#111" stroke-width="2.8" stroke-linecap="round"/>
+                  <path d="M66,56 L80,56" stroke="#111" stroke-width="2.8" stroke-linecap="round"/>
+                  <path d="M44,56 A3.5,3.5 0 0,0 51,56 Z" fill="#1e1b18"/>
+                  <path d="M70,56 A3.5,3.5 0 0,0 77,56 Z" fill="#1e1b18"/>
+                  <path d="M60,60 L58,69 L61,70" fill="none" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+                  <line x1="53" y1="80" x2="67" y2="79" stroke="#111" stroke-width="2.2" stroke-linecap="round"/>
+                </g>
+
+                <!-- Face B: Intense Mode -->
+                <g id="takumi-face-intense" style="display: none;">
+                  <path d="M38,44 L82,44 L80,53 L40,53 Z" fill="#111" opacity="0.22"/>
+                  <path d="M38,47 L56,53" stroke="#111" stroke-width="3.2" stroke-linecap="round"/>
+                  <path d="M82,47 L64,53" stroke="#111" stroke-width="3.2" stroke-linecap="round"/>
+                  <polygon points="39,55 55,56 53,62 41,61" fill="#ffffff" stroke="#111" stroke-width="2"/>
+                  <polygon points="81,55 65,56 67,62 79,61" fill="#ffffff" stroke="#111" stroke-width="2"/>
+                  <circle cx="48" cy="58.5" r="2.8" fill="#111"/>
+                  <circle cx="72" cy="58.5" r="2.8" fill="#111"/>
+                  <circle cx="49" cy="57.5" r="1" fill="#fff"/>
+                  <circle cx="73" cy="57.5" r="1" fill="#fff"/>
+                  <path d="M60,58 L57,69 L62,70" fill="none" stroke="#111" stroke-width="2.3"/>
+                  <path d="M51,79 L69,78 L67,82 L53,82 Z" fill="#ffffff" stroke="#111" stroke-width="2"/>
+                </g>
+
+                <!-- Face C: Panic Mode (Damage only) -->
+                <g id="takumi-face-panic" style="display: none;">
+                  <path d="M39,45 L55,50 M81,45 L65,50" stroke="#111" stroke-width="2.8" stroke-linecap="round"/>
+                  <ellipse cx="47" cy="57" rx="7" ry="5.5" fill="#fff" stroke="#111" stroke-width="2.2"/>
+                  <ellipse cx="73" cy="57" rx="7" ry="5.5" fill="#fff" stroke="#111" stroke-width="2.2"/>
+                  <circle cx="47" cy="57" r="1.8" fill="#111"/>
+                  <circle cx="73" cy="57" r="1.8" fill="#111"/>
+                  <path d="M60,59 L58,68 L61,69" fill="none" stroke="#111" stroke-width="2"/>
+                  <rect x="52" y="75" width="16" height="9" rx="3" fill="#7f1d1d" stroke="#111" stroke-width="2.2"/>
+                  <path d="M84,48 C84,48 89,56 89,59 A3.5,3.5 0 1,1 81,59 C81,56 84,48 84,48 Z" fill="#38bdf8" stroke="#0284c7" stroke-width="1.5"/>
+                </g>
+
+                <!-- Face D: Sleep Mode (When Engine is OFF) -->
+                <g id="takumi-face-sleep" style="display: none;">
+                  <!-- Relaxed Sleeping Brows -->
+                  <path d="M40,51 Q47,53 54,51" fill="none" stroke="#2b1d12" stroke-width="2.2" stroke-linecap="round"/>
+                  <path d="M66,51 Q73,53 80,51" fill="none" stroke="#2b1d12" stroke-width="2.2" stroke-linecap="round"/>
+                  <!-- Closed Sleeping Eyelids -->
+                  <path d="M40,58 Q47,62 54,58" fill="none" stroke="#111" stroke-width="2.8" stroke-linecap="round"/>
+                  <path d="M66,58 Q73,62 80,58" fill="none" stroke="#111" stroke-width="2.8" stroke-linecap="round"/>
+                  <!-- Resting Mouth -->
+                  <path d="M60,60 L58,69 L61,70" fill="none" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+                  <line x1="55" y1="80" x2="65" y2="80" stroke="#111" stroke-width="2.2" stroke-linecap="round"/>
+                  <!-- Floating Zzz -->
+                  <text x="83" y="44" fill="#38bdf8" font-family="'Chakra Petch', sans-serif" font-weight="900" font-size="12" opacity="0.95">Z</text>
+                  <text x="91" y="35" fill="#38bdf8" font-family="'Chakra Petch', sans-serif" font-weight="900" font-size="9" opacity="0.75">z</text>
+                  <text x="97" y="27" fill="#38bdf8" font-family="'Chakra Petch', sans-serif" font-weight="900" font-size="7" opacity="0.55">z</text>
+                </g>
+
+                <!-- 90s Hair -->
+                <path d="M26,56 C22,32 36,14 60,14 C84,14 98,32 94,56 C91,43 87,35 83,31 L86,52 L77,36 C73,43 68,49 63,53 L60,29 L56,53 C50,48 45,41 42,35 L34,52 L37,31 C32,36 29,44 26,56 Z" fill="#4a3222" stroke="#111" stroke-width="2.4" stroke-linejoin="round"/>
+              </svg>
+            </div>
+
+            <!-- Name Strip -->
+            <div class="char-name-strip">
+              <span class="char-name-text">TAKUMI</span>
+              <span id="char-state-badge" class="char-badge">CHILL</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- BOTTOM: Gear + Giant Digital Speed 888 + Clock -->
+        <div class="speed-box-bottom">
+          <div class="speed-top">
+            <div class="gear-wrapper">
+              <span class="gear-tag">GEAR</span>
+              <div id="gear-box" class="font-digital gear-box">1</div>
+            </div>
+
+            <div class="unit-box">
+              <div id="speed-unit-text" class="unit-main">KM/H</div>
+              <div class="unit-sub">DIGITAL VFD</div>
+            </div>
+          </div>
+
+          <!-- Giant 7-Segment Speed Readout with Ghost 888 -->
+          <div class="speed-digits-container">
+            <span class="font-digital speed-ghost">888</span>
+            <span id="speed-digits" class="font-digital speed-digits glow-amber">000</span>
+          </div>
+
+          <!-- Bottom Engine & Clock Info -->
+          <div class="speed-bottom">
+            <span>4A-GE TWIN CAM</span>
+            <span id="clock-display" class="clock-val">12:00</span>
+          </div>
+        </div>
+
+      </section>
+
+    </div>
+  </main>
+
+  <!-- Telemetry Controller Script -->
+  <script src="script.js"></script>
+</body>
+</html>

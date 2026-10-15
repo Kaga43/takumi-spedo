@@ -1,0 +1,936 @@
+:root {
+  --vfd-green: #00f59b;
+  --vfd-amber: #ff9d00;
+  --vfd-red: #ff1e42;
+  --vfd-cyan: #00e5ff;
+  --panel-bg: rgba(11, 13, 19, 0.95);
+  --panel-border: rgba(226, 232, 240, 0.75);
+  --cluster-scale: 1.0;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: transparent !important;
+  background-color: transparent !important;
+  font-family: 'Chakra Petch', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  overflow: hidden;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+}
+
+
+
+/* Monospace & Digital Fonts */
+.font-digital {
+  font-family: 'Orbitron', 'Share Tech Mono', monospace;
+  font-variant-numeric: tabular-nums;
+  font-style: italic;
+}
+
+.font-mono {
+  font-family: 'Share Tech Mono', 'Courier New', monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.font-jp {
+  font-family: 'Noto Sans JP', sans-serif;
+}
+
+/* Scanlines overlay effect (Subtle CRT screen texture on top of cluster without hurting text clarity) */
+.scanlines {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  border-radius: 12px;
+  background: 
+    linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0) 50%,
+      rgba(0, 0, 0, 0.16) 50%
+    ),
+    linear-gradient(
+      90deg,
+      rgba(255, 0, 0, 0.015),
+      rgba(0, 255, 0, 0.01),
+      rgba(0, 0, 255, 0.015)
+    ),
+    radial-gradient(ellipse at center, transparent 75%, rgba(0, 0, 0, 0.22) 100%);
+  background-size: 100% 3px, 6px 100%, 100% 100%;
+  pointer-events: none;
+  opacity: 0.8;
+}
+
+/* Crisp Text Rendering Utility */
+.text-crisp {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: geometricPrecision;
+  position: relative;
+  z-index: 10;
+}
+
+/* Glow effects */
+.glow-amber {
+  text-shadow: 0 0 10px rgba(255, 157, 0, 0.85), 0 0 22px rgba(255, 115, 0, 0.5);
+}
+
+.glow-green {
+  text-shadow: 0 0 10px rgba(0, 245, 155, 0.85), 0 0 20px rgba(0, 245, 155, 0.45);
+}
+
+.glow-red {
+  text-shadow: 0 0 10px rgba(255, 30, 66, 0.95), 0 0 24px rgba(255, 30, 66, 0.75);
+}
+
+/* Animations */
+@keyframes flash-fast {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.15; transform: scale(0.98); }
+}
+
+.flash-alert {
+  animation: flash-fast 0.2s steps(1, start) infinite;
+}
+
+@keyframes signal-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0.15; }
+}
+
+.blink-signal {
+  animation: signal-blink 0.5s infinite;
+}
+
+@keyframes panic-shake {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  25% { transform: translate(-1px, 1px) rotate(-0.5deg); }
+  50% { transform: translate(1px, -1px) rotate(0.5deg); }
+  75% { transform: translate(-1px, -0.5px) rotate(0deg); }
+}
+
+.shake-anim {
+  animation: panic-shake 0.18s infinite;
+}
+
+/* Speedlines */
+@keyframes speedlines-move {
+  0% { background-position: 0 0; opacity: 0.5; }
+  50% { background-position: -100px 0; opacity: 0.9; }
+  100% { background-position: -200px 0; opacity: 0.5; }
+}
+
+.speedlines-overlay {
+  background: repeating-linear-gradient(
+    -12deg,
+    transparent,
+    transparent 6px,
+    rgba(255, 255, 255, 0.18) 6px,
+    rgba(255, 255, 255, 0.18) 8px,
+    transparent 8px,
+    transparent 18px,
+    rgba(255, 180, 0, 0.22) 18px,
+    rgba(255, 180, 0, 0.22) 20px
+  );
+  background-size: 200px 100%;
+  animation: speedlines-move 0.25s linear infinite;
+}
+
+/* Manga Halftone */
+.manga-halftone {
+  background-color: #161821;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.12) 1px, transparent 0);
+  background-size: 6px 6px;
+}
+
+.manga-halftone-intense {
+  background-color: #260b12;
+  background-image: radial-gradient(rgba(255, 157, 0, 0.22) 1.2px, transparent 0);
+  background-size: 5px 5px;
+}
+
+.manga-halftone-danger {
+  background-color: #2b0909;
+  background-image: radial-gradient(rgba(255, 30, 66, 0.28) 1.5px, transparent 0);
+  background-size: 5px 5px;
+}
+
+/* ========================================================================= */
+/* SPEEDOMETER CLUSTER CONTAINER (590PX TO FIT FULL UNTRUNCATED TEXT)        */
+/* ========================================================================= */
+#speedo-cluster {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 590px;
+  z-index: 40;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  transform-origin: bottom right;
+  transform: scale(var(--cluster-scale, 1));
+  transition: transform 0.05s linear, opacity 0.2s ease;
+}
+
+/* Top Header Bar (Mepet menempel di atas bodi box) */
+.cluster-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 0px;
+  padding: 0;
+  width: 100%;
+  gap: 6px;
+}
+
+.tofu-plate {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f4f4f6;
+  color: #0b0c10;
+  padding: 4px 12px;
+  border-radius: 6px 6px 0 0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-bottom: 2px solid #ff9d00;
+  box-shadow: 0 2px 10px rgba(255, 255, 255, 0.15);
+  flex-shrink: 0;
+}
+
+.tofu-plate .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #0b0c10;
+}
+
+.tofu-plate .text-jp {
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.tofu-plate .sub-badge {
+  font-size: 9px;
+  font-weight: 800;
+  background: #0b0c10;
+  color: #ff9d00;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: monospace;
+}
+
+.status-banner {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  background: rgba(18, 21, 30, 0.96);
+  border: 1px solid rgba(255, 157, 0, 0.5);
+  border-bottom: 2px solid rgba(255, 157, 0, 0.5);
+  padding: 4px 12px;
+  border-radius: 6px 6px 0 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #00f59b;
+  box-shadow: 0 0 6px #00f59b;
+  flex-shrink: 0;
+}
+
+.dialogue-jp {
+  font-size: 11px;
+  font-weight: 700;
+  color: #fde047;
+  white-space: nowrap;
+}
+
+.dialogue-sep {
+  color: #4b5563;
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.dialogue-en {
+  font-size: 10px;
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.8px;
+  color: #ffffff;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Main Cluster Frame (Two-Column Master Layout) */
+.cluster-body {
+  position: relative;
+  width: 100%;
+  border-radius: 0 0 12px 12px;
+  border: 2px solid var(--panel-border);
+  background: var(--panel-bg);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 14px;
+  overflow: visible;
+  box-sizing: border-box;
+}
+
+/* Segitiga Resize Grip di Pojok Atas-Kiri Cluster Body */
+.resize-grip {
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  width: 22px;
+  height: 22px;
+  cursor: nwse-resize;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ff9d00;
+  background: #11141e;
+  border: 1.5px solid #ff9d00;
+  border-radius: 4px;
+  box-shadow: 0 0 10px rgba(255, 157, 0, 0.4);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  touch-action: none;
+}
+
+.resize-grip:hover {
+  transform: scale(1.2);
+  box-shadow: 0 0 14px #ff9d00;
+  background: #ff9d00;
+  color: #0b0c10;
+}
+
+.resize-grip svg {
+  width: 12px;
+  height: 12px;
+  fill: currentColor;
+}
+
+.cluster-trim-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #ffffff 0%, #cbd5e1 50%, #ff9d00 100%);
+  z-index: 10;
+}
+
+/* ========================================================================= */
+/* COLUMN 1 (LEFT): TACHOMETER + WARNINGS + FUEL + HEALTH + ODOMETER         */
+/* ========================================================================= */
+.col-tachometer {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  width: 350px;
+  min-width: 350px;
+  max-width: 350px;
+  flex-shrink: 0;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  padding-right: 14px;
+  position: relative;
+  z-index: 10;
+  gap: 8px;
+}
+
+/* Warning Indicators Row directly above Tachometer (6 Authentic Automotive Slots) */
+.tacho-indicators-row {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 5px;
+  background: #12151f;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ind-icon {
+  --icon-bg: #181c26;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  border-radius: 4px;
+  background: var(--icon-bg);
+  color: #3b4252;
+  transition: all 0.15s ease;
+  position: relative;
+}
+
+.ind-icon svg {
+  width: 17px;
+  height: 17px;
+  fill: currentColor;
+}
+
+.ind-icon.active-green {
+  --icon-bg: #00f59b;
+  background: var(--icon-bg);
+  color: #0b0c10;
+  box-shadow: 0 0 9px #00f59b;
+}
+
+.ind-icon.active-blue {
+  --icon-bg: #00e5ff;
+  background: var(--icon-bg);
+  color: #0b0c10;
+  box-shadow: 0 0 11px #00e5ff;
+}
+
+.ind-icon.active-red {
+  --icon-bg: #ff1e42;
+  background: var(--icon-bg);
+  color: #ffffff;
+  box-shadow: 0 0 9px #ff1e42;
+}
+
+.ind-icon.active-amber {
+  --icon-bg: #ff9d00;
+  background: var(--icon-bg);
+  color: #0b0c10;
+  box-shadow: 0 0 9px #ff9d00;
+}
+
+/* Tachometer Main Area */
+.tacho-main-box {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.tacho-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.tacho-title {
+  font-size: 11px;
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 1px;
+  color: #ffffff;
+}
+
+.tacho-scale-label {
+  font-size: 9px;
+  font-family: monospace;
+  color: #ff9d00;
+  font-weight: 700;
+  margin-left: 5px;
+}
+
+.shift-pill {
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #141822;
+  color: #64748b;
+  transition: all 0.15s ease;
+}
+
+.shift-pill.active {
+  border-color: #ff1e42;
+  background: #ff1e42;
+  color: #ffffff;
+  box-shadow: 0 0 12px #ff1e42;
+}
+
+/* Numbers scale 1 - 11 */
+.rpm-scale {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 4px;
+  font-size: 10px;
+  font-weight: 900;
+  font-style: italic;
+}
+
+.scale-green { color: #00f59b; }
+.scale-amber { color: #ff9d00; }
+.scale-orange { color: #f97316; }
+.scale-red { color: #ff1e42; }
+
+/* 24-Segment VFD Tachometer Bar */
+.rpm-bar-track {
+  height: 32px;
+  width: 100%;
+  background: #11141d;
+  padding: 4px;
+  border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: stretch;
+  gap: 3px;
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.7);
+}
+
+.rpm-seg {
+  flex: 1;
+  border-radius: 1px;
+  transform: skewX(-18deg);
+  background: #191d26;
+  opacity: 0.45;
+  transition: background-color 0.04s ease, box-shadow 0.04s ease;
+}
+
+.rpm-seg.active-green {
+  background: #00f59b;
+  opacity: 1;
+  box-shadow: 0 0 7px rgba(0, 245, 155, 0.85);
+}
+
+.rpm-seg.active-amber {
+  background: #ff9d00;
+  opacity: 1;
+  box-shadow: 0 0 8px rgba(255, 157, 0, 0.85);
+}
+
+.rpm-seg.active-red {
+  background: #ff1e42;
+  opacity: 1;
+  box-shadow: 0 0 10px rgba(255, 30, 66, 0.95);
+}
+
+.rpm-seg.peak-hold {
+  background: #ffffff;
+  opacity: 1;
+  box-shadow: 0 0 10px #ffffff, 0 0 16px #ff1e42;
+}
+
+.tacho-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 1px;
+}
+
+.rpm-readout {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.rpm-numeric {
+  font-size: 14px;
+  font-weight: 900;
+  color: #ff9d00;
+}
+
+.rpm-unit {
+  font-size: 9px;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.chime-indicator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #141720;
+  color: #64748b;
+  font-size: 8.5px;
+  font-weight: 900;
+  letter-spacing: 0.5px;
+  transition: all 0.15s ease;
+}
+
+.chime-indicator svg {
+  width: 9px;
+  height: 9px;
+  fill: currentColor;
+}
+
+.chime-indicator.active {
+  border-color: #ff9d00;
+  background: rgba(255, 157, 0, 0.2);
+  color: #fde047;
+  box-shadow: 0 0 10px rgba(255, 157, 0, 0.5);
+}
+
+/* Sub-meters: Fuel, Health, Odometer (Integrated under Tachometer) */
+.tacho-submeters {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(18, 21, 31, 0.5);
+  padding: 6px 8px;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.meter-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.bar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  margin-bottom: 2px;
+}
+
+.bar-title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #00f59b;
+}
+
+.bar-title svg {
+  width: 10px;
+  height: 10px;
+  fill: currentColor;
+}
+
+.bar-title.fuel-title {
+  color: #ff9d00;
+}
+
+.bar-value {
+  font-size: 10px;
+  font-weight: 700;
+  color: #ff9d00;
+}
+
+.bar-track {
+  height: 8px;
+  width: 100%;
+  background: #12151f;
+  border-radius: 2px;
+  padding: 1px;
+  display: flex;
+  gap: 1.5px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.sub-segment {
+  flex: 1;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.06);
+  transform: skewX(-14deg);
+  transition: all 0.08s ease;
+}
+
+.sub-segment.active-amber {
+  background: #ff9d00;
+  box-shadow: 0 0 5px #ff9d00;
+}
+
+.sub-segment.active-green {
+  background: #00f59b;
+  box-shadow: 0 0 5px #00f59b;
+}
+
+.sub-segment.active-red {
+  background: #ff1e42;
+  box-shadow: 0 0 7px #ff1e42;
+}
+
+/* Odometer Box */
+.odo-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #11141d;
+  padding: 3px 7px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.odo-label {
+  font-size: 8.5px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  color: #64748b;
+  text-transform: uppercase;
+}
+
+.odo-digits {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: #ff9d00;
+}
+
+.odo-unit {
+  font-size: 8.5px;
+  color: #d97706;
+}
+
+/* ========================================================================= */
+/* COLUMN 2 (RIGHT): TAKUMI + WATER CUP (TOP) & SPEED + GEAR (BOTTOM)        */
+/* ========================================================================= */
+.col-speed-wrap {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  width: 198px;
+  min-width: 198px;
+  max-width: 198px;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 10;
+  gap: 8px;
+}
+
+/* TOP: Water Cup & Takumi Avatar Side-by-Side */
+.char-water-top {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  height: 94px;
+}
+
+/* Water Cup G-Force */
+.water-cup-box {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  width: 32px;
+  background: #12151f;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 4px 2px;
+}
+
+.cup-title {
+  font-size: 7px;
+  font-weight: 900;
+  color: #00e5ff;
+  text-align: center;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.cup-svg-wrap {
+  position: relative;
+  width: 22px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cup-svg-wrap svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.cup-status {
+  font-size: 7px;
+  font-family: monospace;
+  font-weight: 700;
+  color: #00f59b;
+  text-transform: uppercase;
+}
+
+/* Character Portrait Frame */
+.char-frame {
+  position: relative;
+  flex: 1;
+  height: 94px;
+  border-radius: 7px;
+  border: 2px solid rgba(255, 157, 0, 0.7);
+  overflow: hidden;
+  box-shadow: 0 0 14px rgba(0, 0, 0, 0.8);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  transition: all 0.2s ease;
+}
+
+.char-svg-wrap {
+  position: relative;
+  z-index: 5;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.char-svg-wrap svg {
+  width: 100%;
+  height: 100%;
+}
+
+.char-name-strip {
+  position: relative;
+  z-index: 10;
+  background: rgba(0, 0, 0, 0.85);
+  border-top: 1px solid #334155;
+  padding: 1.5px 5px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.char-name-text {
+  font-size: 8px;
+  font-weight: 900;
+  color: #ff9d00;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.char-badge {
+  font-size: 7px;
+  font-family: monospace;
+  font-weight: 700;
+  padding: 1px 3px;
+  border-radius: 2px;
+  background: rgba(0, 245, 155, 0.2);
+  color: #00f59b;
+}
+
+/* BOTTOM: Speed Readout, Gear & Clock */
+.speed-box-bottom {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  background: #11141e;
+  padding: 6px 8px;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.speed-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.gear-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.gear-tag {
+  font-size: 9px;
+  font-weight: 900;
+  color: #64748b;
+  letter-spacing: 0.5px;
+}
+
+.gear-box {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: #141824;
+  border: 1.5px solid rgba(255, 157, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 900;
+  color: #ff9d00;
+  box-shadow: inset 0 0 6px rgba(255, 157, 0, 0.25);
+  transition: all 0.15s ease;
+}
+
+.gear-box.redline {
+  background: rgba(255, 30, 66, 0.3);
+  border-color: #ff1e42;
+  color: #ff1e42;
+  box-shadow: 0 0 12px #ff1e42;
+}
+
+.unit-box {
+  text-align: right;
+}
+
+.unit-main {
+  font-size: 11px;
+  font-weight: 900;
+  font-style: italic;
+  color: #00f59b;
+  letter-spacing: 1px;
+}
+
+.unit-sub {
+  font-size: 7.5px;
+  font-family: monospace;
+  color: #64748b;
+  text-transform: uppercase;
+}
+
+/* 7-Segment Speed Display with Ghost 888 */
+.speed-digits-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin: 1px 0;
+}
+
+.speed-ghost {
+  font-size: 46px;
+  font-weight: 900;
+  color: #171c28;
+  letter-spacing: -2px;
+  pointer-events: none;
+}
+
+.speed-digits {
+  position: absolute;
+  right: 0;
+  font-size: 46px;
+  font-weight: 900;
+  color: #ff9d00;
+  letter-spacing: -2px;
+}
+
+.speed-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 8px;
+  font-family: monospace;
+  color: #64748b;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 3px;
+}
+
+.clock-val {
+  color: #ff9d00;
+  font-weight: 700;
+}
