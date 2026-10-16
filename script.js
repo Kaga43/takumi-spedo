@@ -705,7 +705,7 @@ function handlePlayerStateChange(e) {
     try {
       if (ytPlayer && ytPlayer.getVideoData) {
         const info = ytPlayer.getVideoData();
-        if (info && info.title && (!carMusic.title || carMusic.title.startsWith('SEEK:') || carMusic.title.startsWith('🔍') || carMusic.title === 'TAPE - NO CASSETTE / STANDBY')) {
+        if (info && info.title && (!carMusic.title || carMusic.title.startsWith('SEEK:') || carMusic.title === 'TAPE - NO CASSETTE / STANDBY')) {
           carMusic.title = info.title;
           if (info.video_id) carMusic.videoId = info.video_id;
           updateTrackTitleUI();
@@ -1634,6 +1634,7 @@ function updateStereoPosition() {
 }
 
 function broadcastMusicSync(action, payload) {
+  // 1. FiveM Native Lua Callback (for local FiveM resource installations)
   try {
     if (typeof window.GetParentResourceName === 'function') {
       fetch(`https://${window.GetParentResourceName()}/carMusicSync`, {
@@ -1643,6 +1644,207 @@ function broadcastMusicSync(action, payload) {
       }).catch(() => {});
     }
   } catch (e) {}
+
+  // 2. Real-Time Cloud Cabin Sync (for GitHub Pages / Vercel / multi-passenger)
+  try {
+    if (typeof publishCabinSync === 'function') {
+      publishCabinSync(action, payload);
+    }
+  } catch (e) {}
+}
+
+// ---------------------------------------------------------------------------
+// REAL-TIME CABIN CLOUD SYNC (WEBSOCKET / MQTT PUBSUB FOR GITHUB PAGES & FIVEM)
+// ---------------------------------------------------------------------------
+
+let cabinMqttClient = null;
+const cabinClientId = 'ae86_' + Math.random().toString(36).substring(2, 9);
+
+function getCabinTopic() {
+  const plateClean = (telemetry.plate || telemetry.vehiclePlate || 'AE86')
+    .toString()
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]/g, '')
+    .toUpperCase();
+  return `takumi_spedo/cabin_${plateClean || 'AE86'}`;
+}
+
+function initCabinCloudSync() {
+  if (typeof window.mqtt === 'undefined') {
+    console.warn('[CABIN SYNC] MQTT library not available. Cloud sync inactive.');
+    return;
+  }
+
+  try {
+    const topic = getCabinTopic();
+    // Connect to HiveMQ Public WSS Broker (zero keys, free, global WebSocket)
+    cabinMqttClient = window.mqtt.connect('wss://broker.hivemq.com:8884/mqtt', {
+      clientId: cabinClientId,
+      keepalive: 30,
+      clean: true,
+      reconnectPeriod: 3000
+    });
+
+    cabinMqttClient.on('connect', () => {
+      console.log(`[CABIN SYNC] Connected to Cloud Cabin Broker. Subscribing to: ${topic}`);
+      cabinMqttClient.subscribe(topic, { qos: 0 });
+      updateCabinSyncUI(true);
+
+      // If we are a passenger joining an existing car, ask if any music is already playing in the cabin
+      setTimeout(() => {
+        publishCabinMessage('REQUEST_SYNC', {});
+      }, 600);
+    });
+
+    cabinMqttClient.on('message', (msgTopic, rawMsg) => {
+      try {
+        const payload = JSON.parse(rawMsg.toString());
+        // Ignore messages sent by ourself
+        if (payload.sender === cabinClientId) return;
+
+        handleCabinIncomingMessage(payload);
+      } catch (err) {
+        console.warn('[CABIN SYNC] Parse error:', err);
+      }
+    });
+
+    cabinMqttClient.on('error', (err) => {
+      console.warn('[CABIN SYNC] Connection error:', err.message);
+      updateCabinSyncUI(false);
+    });
+
+    cabinMqttClient.on('close', () => {
+      updateCabinSyncUI(false);
+    });
+  } catch (err) {
+    console.warn('[CABIN SYNC] Init failed:', err);
+  }
+}
+
+function updateCabinSyncUI(connected) {
+  const syncInfoEl = document.getElementById('stereo-sync-info');
+  const roleBadge = document.getElementById('stereo-role-badge');
+  if (syncInfoEl) {
+    syncInfoEl.textContent = connected ? 'CABIN LINKED' : 'STEREO HI-FI';
+    syncInfoEl.style.color = connected ? '#00f59b' : '';
+  }
+  if (roleBadge && connected) {
+    roleBadge.textContent = 'CABIN STEREO';
+  }
+}
+
+function publishCabinMessage(type, data = {}) {
+  if (!cabinMqttClient || !cabinMqttClient.connected) return;
+  try {
+    const topic = getCabinTopic();
+    const packet = JSON.stringify({
+      sender: cabinClientId,
+      type: type,
+      timestamp: Date.now(),
+      ...data
+    });
+    cabinMqttClient.publish(topic, packet, { qos: 0 });
+  } catch (err) {}
+}
+
+function publishCabinSync(action, payload) {
+  if (!cabinMqttClient || !cabinMqttClient.connected) return;
+  if (action === 'play') {
+    publishCabinMessage('PLAY_TRACK', {
+      videoId: payload.videoId,
+      title: payload.title,
+      startSeconds: payload.startSeconds,
+      serverTime: payload.serverTime,
+      isPlaying: payload.isPlaying,
+      isMixtape: payload.isMixtape,
+      queue: carMusic.queue,
+      queueIndex: carMusic.queueIndex
+    });
+  } else if (action === 'pause') {
+    publishCabinMessage('TOGGLE_PLAY', { isPlaying: false, currentPosition: payload.startSeconds });
+  } else if (action === 'resume') {
+    publishCabinMessage('TOGGLE_PLAY', { isPlaying: true, currentPosition: payload.startSeconds });
+  } else if (action === 'stop') {
+    publishCabinMessage('STOP', {});
+  } else if (action === 'seek') {
+    publishCabinMessage('SEEK', { seconds: payload.startSeconds });
+  } else if (action === 'syncQueue') {
+    publishCabinMessage('SYNC_QUEUE', { queue: payload.queue, queueIndex: payload.queueIndex });
+  }
+}
+
+function handleCabinIncomingMessage(msg) {
+  console.log('[CABIN SYNC] Received message from cabin peer:', msg.type);
+
+  switch (msg.type) {
+    case 'REQUEST_SYNC':
+      // Another occupant entered the car. If we have active music, reply with current status
+      if (carMusic.videoId && carMusic.videoId !== STANDBY_VIDEO_ID) {
+        publishCabinMessage('SYNC_STATE', {
+          videoId: carMusic.videoId,
+          title: carMusic.title,
+          startSeconds: (ytReady && ytPlayer && ytPlayer.getCurrentTime) ? ytPlayer.getCurrentTime() : carMusic.currentPosition,
+          serverTime: Date.now(),
+          isPlaying: carMusic.isPlaying,
+          queue: carMusic.queue,
+          queueIndex: carMusic.queueIndex,
+          isMixtape: true
+        });
+      }
+      break;
+
+    case 'SYNC_STATE':
+    case 'PLAY_TRACK':
+      if (msg.queue) {
+        carMusic.queue = msg.queue;
+        if (typeof msg.queueIndex === 'number') carMusic.queueIndex = msg.queueIndex;
+        renderQueueUI();
+        updateQueueCountUI();
+      }
+      syncTrackAsPassenger({
+        videoId: msg.videoId,
+        title: msg.title,
+        startSeconds: msg.startSeconds || 0,
+        serverTime: msg.serverTime || msg.timestamp || Date.now(),
+        isPlaying: Boolean(msg.isPlaying),
+        isMixtape: Boolean(msg.isMixtape)
+      });
+      break;
+
+    case 'TOGGLE_PLAY':
+      if (msg.isPlaying) {
+        if (!carMusic.isPlaying) {
+          togglePlayPause();
+        }
+      } else {
+        if (carMusic.isPlaying) {
+          togglePlayPause();
+        }
+      }
+      break;
+
+    case 'STOP':
+      stopMusic();
+      break;
+
+    case 'SEEK':
+      if (typeof msg.seconds === 'number') {
+        carMusic.startSeconds = msg.seconds;
+        if (ytReady && ytPlayer && ytPlayer.seekTo) {
+          ytPlayer.seekTo(msg.seconds, true);
+        }
+      }
+      break;
+
+    case 'SYNC_QUEUE':
+      if (Array.isArray(msg.queue)) {
+        carMusic.queue = msg.queue;
+        if (typeof msg.queueIndex === 'number') carMusic.queueIndex = msg.queueIndex;
+        renderQueueUI();
+        updateQueueCountUI();
+      }
+      break;
+  }
 }
 
 function initStereoDeck() {
@@ -1753,7 +1955,13 @@ function initStereoDeck() {
       e.stopPropagation();
       if (e.key === 'Enter') {
         e.preventDefault();
+        searchInput.blur();
+        releaseNuiFocus(true);
         handlePerformSearch();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        searchInput.blur();
+        releaseNuiFocus(true);
       }
     });
 
@@ -1762,6 +1970,19 @@ function initStereoDeck() {
     searchInput.addEventListener('click', (e) => {
       e.stopPropagation();
       searchInput.focus();
+    });
+
+    searchInput.addEventListener('blur', () => {
+      releaseNuiFocus(true);
+      try {
+        if (typeof window.GetParentResourceName === 'function') {
+          fetch(`https://${window.GetParentResourceName()}/releaseInputFocus`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ focus: false })
+          }).catch(() => {});
+        }
+      } catch (e) {}
     });
 
     // Request NUI keyboard focus if running inside FiveM CEF
@@ -1849,12 +2070,9 @@ function initStereoDeck() {
  * Release NUI and CEF DOM focus so keyboard controls (T for chat, F5, driving keys)
  * are immediately returned to GTA V / FiveM.
  */
-function releaseNuiFocus(e) {
+function releaseNuiFocus(force = false) {
   try {
-    if (e && e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.closest('#stereo-modal'))) {
-      return;
-    }
-    if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {
+    if (!force && document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {
       return;
     }
     if (document.activeElement && typeof document.activeElement.blur === 'function') {
@@ -1866,6 +2084,12 @@ function releaseNuiFocus(e) {
     if (window.parent && window.parent !== window && typeof window.parent.blur === 'function') {
       window.parent.blur();
     }
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ action: 'releaseFocus', type: 'releaseFocus' }, '*');
+      }
+    } catch (e) {}
+
     if (typeof window.GetParentResourceName === 'function') {
       fetch(`https://${window.GetParentResourceName()}/releaseFocus`, {
         method: 'POST',
@@ -1932,15 +2156,15 @@ function initResizeGrip() {
     window.removeEventListener('pointerup', onPointerUp);
     window.removeEventListener('pointercancel', onPointerUp);
 
-    // Release CEF focus immediately so game keys (T, F5) work
-    releaseNuiFocus();
+    // Release CEF focus immediately so game keys (T, F5) work in FiveM
+    releaseNuiFocus(true);
   };
 
   // Double click resets scale to default 1.0 (100%)
   grip.addEventListener('dblclick', (e) => {
     e.preventDefault();
     setClusterScale(1.0);
-    releaseNuiFocus();
+    releaseNuiFocus(true);
   });
 
   grip.addEventListener('pointerdown', onPointerDown);
@@ -2034,7 +2258,7 @@ function initMoveGrip() {
     } catch (err) {}
 
     // Release CEF focus immediately
-    releaseNuiFocus();
+    releaseNuiFocus(true);
   };
 
   // Double click resets position to default bottom-right
@@ -2046,7 +2270,7 @@ function initMoveGrip() {
       localStorage.removeItem('ae86_cluster_pos_right');
       localStorage.removeItem('ae86_cluster_pos_bottom');
     } catch (err) {}
-    releaseNuiFocus();
+    releaseNuiFocus(true);
   });
 
   moveGrip.addEventListener('pointerdown', onPointerDown);
@@ -2054,28 +2278,31 @@ function initMoveGrip() {
 
 // Global Focus Management Listeners for FiveM CEF
 const handleGlobalRelease = (e) => {
-  if (e && e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.closest('#stereo-modal'))) {
+  if (e && e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
     return;
   }
-  releaseNuiFocus(e);
+  releaseNuiFocus(true);
 };
-window.addEventListener('pointerup', handleGlobalRelease);
-window.addEventListener('mouseup', handleGlobalRelease);
-window.addEventListener('touchend', handleGlobalRelease);
+window.addEventListener('pointerup', handleGlobalRelease, true);
+window.addEventListener('mouseup', handleGlobalRelease, true);
+window.addEventListener('touchend', handleGlobalRelease, true);
 
-// Intercept key events inside CEF: if player presses T (chat), F5, Escape, or any key outside an input, blur immediately
+// Intercept key events inside CEF: if player presses T (chat), F5, Escape, or any game key outside an input, blur immediately
 window.addEventListener('keydown', (e) => {
+  if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
+    if (e.key === 'Escape' || e.key === 'Enter') {
+      e.target.blur();
+      releaseNuiFocus(true);
+    }
+    return;
+  }
   if (e.key === 'Escape') {
     if (carMusic.isOpen) {
       toggleStereoDeck();
-      return;
     }
   }
-  if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
-    return;
-  }
-  releaseNuiFocus();
-});
+  releaseNuiFocus(true);
+}, true);
 
 // Initialize on DOM Ready
 document.addEventListener('DOMContentLoaded', () => {
@@ -2086,6 +2313,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initMoveGrip();
   initStereoDeck();
   initYouTubeApi();
+  initCabinCloudSync();
 
   // Restore saved scale from localStorage
   try {

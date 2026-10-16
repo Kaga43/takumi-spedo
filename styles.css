@@ -383,6 +383,13 @@ html, body {
   pointer-events: auto;
   user-select: none;
   -webkit-user-select: none;
+  outline: none !important;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.corner-tool-btn:focus,
+.corner-tool-btn:focus-visible {
+  outline: none !important;
 }
 
 .corner-tool-btn:hover {
