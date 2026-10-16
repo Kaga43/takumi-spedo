@@ -1634,18 +1634,7 @@ function updateStereoPosition() {
 }
 
 function broadcastMusicSync(action, payload) {
-  // 1. FiveM Native Lua Callback (for local FiveM resource installations)
-  try {
-    if (typeof window.GetParentResourceName === 'function') {
-      fetch(`https://${window.GetParentResourceName()}/carMusicSync`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, ...payload })
-      }).catch(() => {});
-    }
-  } catch (e) {}
-
-  // 2. Real-Time Cloud Cabin Sync (for GitHub Pages / Vercel / multi-passenger)
+  // 100% Cloud Cabin Sync over WebSockets (Zero Lua required, works on GitHub Pages & Vercel)
   try {
     if (typeof publishCabinSync === 'function') {
       publishCabinSync(action, payload);
@@ -1659,14 +1648,47 @@ function broadcastMusicSync(action, payload) {
 
 let cabinMqttClient = null;
 const cabinClientId = 'ae86_' + Math.random().toString(36).substring(2, 9);
+let currentCabinChannel = parseInt(localStorage.getItem('ae86_cabin_channel') || '1', 10);
+if (isNaN(currentCabinChannel) || currentCabinChannel < 1 || currentCabinChannel > 9) {
+  currentCabinChannel = 1;
+}
 
 function getCabinTopic() {
-  const plateClean = (telemetry.plate || telemetry.vehiclePlate || 'AE86')
-    .toString()
-    .trim()
-    .replace(/[^a-zA-Z0-9_-]/g, '')
-    .toUpperCase();
-  return `takumi_spedo/cabin_${plateClean || 'AE86'}`;
+  return `takumi_spedo/cabin_CH_${currentCabinChannel}`;
+}
+
+function updateCabinChannelUI() {
+  const chDisplay = document.getElementById('stereo-ch-val');
+  const syncInfoEl = document.getElementById('stereo-sync-info');
+  if (chDisplay) chDisplay.textContent = `CH ${currentCabinChannel}`;
+  if (syncInfoEl) {
+    const isConn = cabinMqttClient && cabinMqttClient.connected;
+    syncInfoEl.textContent = isConn ? `CABIN CH ${currentCabinChannel}` : `CH ${currentCabinChannel} (CONNECTING)`;
+    syncInfoEl.style.color = isConn ? '#00f59b' : '#ff9d00';
+  }
+}
+
+function setCabinChannel(num) {
+  num = Math.max(1, Math.min(9, parseInt(num, 10) || 1));
+  if (num === currentCabinChannel && cabinMqttClient && cabinMqttClient.connected) return;
+
+  const oldTopic = getCabinTopic();
+  currentCabinChannel = num;
+  try {
+    localStorage.setItem('ae86_cabin_channel', currentCabinChannel.toString());
+  } catch (e) {}
+
+  updateCabinChannelUI();
+
+  if (cabinMqttClient && cabinMqttClient.connected) {
+    try {
+      cabinMqttClient.unsubscribe(oldTopic);
+    } catch (e) {}
+    const newTopic = getCabinTopic();
+    cabinMqttClient.subscribe(newTopic, { qos: 0 });
+    console.log(`[CABIN SYNC] Switched cabin channel to: ${newTopic}`);
+    publishCabinMessage('REQUEST_SYNC', {});
+  }
 }
 
 function initCabinCloudSync() {
@@ -1689,6 +1711,7 @@ function initCabinCloudSync() {
       console.log(`[CABIN SYNC] Connected to Cloud Cabin Broker. Subscribing to: ${topic}`);
       cabinMqttClient.subscribe(topic, { qos: 0 });
       updateCabinSyncUI(true);
+      updateCabinChannelUI();
 
       // If we are a passenger joining an existing car, ask if any music is already playing in the cabin
       setTimeout(() => {
@@ -1711,10 +1734,12 @@ function initCabinCloudSync() {
     cabinMqttClient.on('error', (err) => {
       console.warn('[CABIN SYNC] Connection error:', err.message);
       updateCabinSyncUI(false);
+      updateCabinChannelUI();
     });
 
     cabinMqttClient.on('close', () => {
       updateCabinSyncUI(false);
+      updateCabinChannelUI();
     });
   } catch (err) {
     console.warn('[CABIN SYNC] Init failed:', err);
@@ -1722,14 +1747,10 @@ function initCabinCloudSync() {
 }
 
 function updateCabinSyncUI(connected) {
-  const syncInfoEl = document.getElementById('stereo-sync-info');
   const roleBadge = document.getElementById('stereo-role-badge');
-  if (syncInfoEl) {
-    syncInfoEl.textContent = connected ? 'CABIN LINKED' : 'STEREO HI-FI';
-    syncInfoEl.style.color = connected ? '#00f59b' : '';
-  }
+  updateCabinChannelUI();
   if (roleBadge && connected) {
-    roleBadge.textContent = 'CABIN STEREO';
+    roleBadge.textContent = `CABIN CH-${currentCabinChannel}`;
   }
 }
 
@@ -1887,6 +1908,22 @@ function initStereoDeck() {
     btnClose.addEventListener('click', (e) => {
       e.stopPropagation();
       toggleStereoDeck();
+    });
+  }
+
+  // Retro Cabin Audio Channel Selector Controls
+  const btnChPrev = document.getElementById('stereo-btn-ch-prev');
+  const btnChNext = document.getElementById('stereo-btn-ch-next');
+  if (btnChPrev) {
+    btnChPrev.addEventListener('click', (e) => {
+      e.stopPropagation();
+      setCabinChannel(currentCabinChannel > 1 ? currentCabinChannel - 1 : 9);
+    });
+  }
+  if (btnChNext) {
+    btnChNext.addEventListener('click', (e) => {
+      e.stopPropagation();
+      setCabinChannel(currentCabinChannel < 9 ? currentCabinChannel + 1 : 1);
     });
   }
 
@@ -2084,19 +2121,6 @@ function releaseNuiFocus(force = false) {
     if (window.parent && window.parent !== window && typeof window.parent.blur === 'function') {
       window.parent.blur();
     }
-    try {
-      if (window.parent && window.parent !== window) {
-        window.parent.postMessage({ action: 'releaseFocus', type: 'releaseFocus' }, '*');
-      }
-    } catch (e) {}
-
-    if (typeof window.GetParentResourceName === 'function') {
-      fetch(`https://${window.GetParentResourceName()}/releaseFocus`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({})
-      }).catch(() => {});
-    }
   } catch (err) {}
 }
 
@@ -2112,7 +2136,13 @@ function initResizeGrip() {
   let startY = 0;
   let startScale = 1.0;
 
+  // Prevent Chromium from stealing OS keyboard focus on click/drag
+  grip.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+  });
+
   const onPointerDown = (e) => {
+    if (e.button !== 0) return; // Only drag on primary pointer button
     isDragging = true;
     startX = e.clientX ?? (e.touches && e.touches[0].clientX);
     startY = e.clientY ?? (e.touches && e.touches[0].clientY);
@@ -2186,7 +2216,13 @@ function initMoveGrip() {
   let startRight = 24;
   let startBottom = 24;
 
+  // Prevent Chromium from stealing OS keyboard focus on click/drag
+  moveGrip.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+  });
+
   const onPointerDown = (e) => {
+    if (e.button !== 0) return; // Only drag on primary pointer button
     isMoving = true;
     startX = e.clientX ?? (e.touches && e.touches[0].clientX);
     startY = e.clientY ?? (e.touches && e.touches[0].clientY);
@@ -2276,6 +2312,19 @@ function initMoveGrip() {
   moveGrip.addEventListener('pointerdown', onPointerDown);
 }
 
+// Universal Audio & Interaction Unlock (Bypasses Chromium Autoplay restriction for passengers)
+const unlockAudioOnGesture = () => {
+  if (telemetry.soundEnabled) getAudioContext();
+  if (carMusic.isPlaying && ytReady && ytPlayer && typeof ytPlayer.playVideo === 'function') {
+    try {
+      if (typeof ytPlayer.unMute === 'function' && !carMusic.isMuted) ytPlayer.unMute();
+      ytPlayer.playVideo();
+    } catch (e) {}
+  }
+};
+window.addEventListener('click', unlockAudioOnGesture);
+window.addEventListener('pointerdown', unlockAudioOnGesture);
+
 // Global Focus Management Listeners for FiveM CEF
 const handleGlobalRelease = (e) => {
   if (e && e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
@@ -2283,26 +2332,24 @@ const handleGlobalRelease = (e) => {
   }
   releaseNuiFocus(true);
 };
-window.addEventListener('pointerup', handleGlobalRelease, true);
-window.addEventListener('mouseup', handleGlobalRelease, true);
-window.addEventListener('touchend', handleGlobalRelease, true);
+window.addEventListener('pointerup', handleGlobalRelease);
+window.addEventListener('touchend', handleGlobalRelease);
 
-// Intercept key events inside CEF: if player presses T (chat), F5, Escape, or any game key outside an input, blur immediately
+// Clean Keyboard Management: Only intercept Escape to close stereo deck when open.
+// NEVER block or intercept game keys (T for chat, F5, W/A/S/D) on window!
 window.addEventListener('keydown', (e) => {
   if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
-    if (e.key === 'Escape' || e.key === 'Enter') {
+    if (e.key === 'Escape') {
       e.target.blur();
       releaseNuiFocus(true);
     }
     return;
   }
-  if (e.key === 'Escape') {
-    if (carMusic.isOpen) {
-      toggleStereoDeck();
-    }
+  if (e.key === 'Escape' && carMusic.isOpen) {
+    toggleStereoDeck();
+    releaseNuiFocus(true);
   }
-  releaseNuiFocus(true);
-}, true);
+});
 
 // Initialize on DOM Ready
 document.addEventListener('DOMContentLoaded', () => {

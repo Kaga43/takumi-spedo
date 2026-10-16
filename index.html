@@ -32,6 +32,13 @@
           <span class="stereo-model-badge">COMPONENT DECK</span>
         </div>
         <div class="stereo-header-right">
+          <!-- Retro Cabin Audio Channel / Room Selector (Zero Lua Sync) -->
+          <div class="cabin-channel-wrap" title="Saluran Audio Kabin (Samakan nomor channel dengan penumpang di mobil Anda)">
+            <span class="channel-label">CABIN</span>
+            <button id="stereo-btn-ch-prev" class="stereo-ch-btn" title="Channel Sebelumnya">◀</button>
+            <span id="stereo-ch-val" class="stereo-ch-display">CH 1</span>
+            <button id="stereo-btn-ch-next" class="stereo-ch-btn" title="Channel Berikutnya">▶</button>
+          </div>
           <button id="stereo-btn-toggle-queue" class="stereo-btn-queue-toggle" title="Lihat/Tutup Daftar Track Kabin"><span class="btn-icon-glyph">☰</span> TRACK LIST (<span id="stereo-queue-count">0</span>)</button>
           <button id="stereo-close-btn" class="stereo-btn-close" title="Tutup Stereo Deck (Esc)">✕</button>
         </div>
