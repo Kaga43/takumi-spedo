@@ -3,6 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>Initial D AE86 Digital Speedometer - JG:VRP</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -16,12 +20,164 @@
   <!-- ======================================================================= -->
   <main id="speedo-cluster">
     
+    <!-- ======================================================================= -->
+    <!-- FUJIWARA CAR STEREO CASSETTE DECK (YOUTUBE STREAMING & PASSENGER SYNC)  -->
+    <!-- ======================================================================= -->
+    <div id="stereo-modal" class="stereo-deck" style="display: none;">
+      <!-- Stereo Header -->
+      <div class="stereo-header">
+        <div class="stereo-branding">
+          <span class="stereo-tape-badge">TAPE</span>
+          <span class="stereo-brand-title">CARROZZERIA ELECTRONIC AUDIO</span>
+          <span class="stereo-model-badge">COMPONENT DECK</span>
+        </div>
+        <div class="stereo-header-right">
+          <button id="stereo-btn-toggle-queue" class="stereo-btn-queue-toggle" title="Lihat/Tutup Daftar Track Kabin"><span class="btn-icon-glyph">☰</span> TRACK LIST (<span id="stereo-queue-count">0</span>)</button>
+          <button id="stereo-close-btn" class="stereo-btn-close" title="Tutup Stereo Deck (Esc)">✕</button>
+        </div>
+      </div>
+
+      <!-- Main Deck Body: Cassette Bay + VFD Display + Equalizer -->
+      <div class="stereo-body">
+        
+        <!-- Left: Realistic Cassette Window with Spinning Spools -->
+        <div class="cassette-viewport cassette-empty">
+          <div class="cassette-tape-body" id="cassette-visual">
+            <div class="spool spool-left" id="spool-left">
+              <div class="spool-center"></div>
+              <div class="spool-teeth"></div>
+            </div>
+            <div class="tape-window">
+              <span class="tape-badge">TYPE II // HIGH BIAS</span>
+              <div class="tape-film"></div>
+            </div>
+            <div class="spool spool-right" id="spool-right">
+              <div class="spool-center"></div>
+              <div class="spool-teeth"></div>
+            </div>
+          </div>
+          <div class="cassette-label-strip">
+            <span id="stereo-cassette-title" class="label-text">[ NO CASSETTE INSERTED ]</span>
+          </div>
+        </div>
+
+        <!-- Center: Digital VFD Screen & Animated Equalizer -->
+        <div class="stereo-vfd-screen">
+          <div class="vfd-top-meta">
+            <span class="vfd-status" id="stereo-play-status">⏹ STANDBY</span>
+            <span class="vfd-mode" id="stereo-role-badge">AUTO REVERSE</span>
+            <span class="vfd-khz">DOLBY B-NR // 44.1kHz</span>
+          </div>
+          <!-- Track Title with Smooth Marquee effect -->
+          <div class="vfd-title-marquee-wrap">
+            <div class="vfd-title-marquee" id="stereo-track-title">TAPE - NO CASSETTE / STANDBY</div>
+          </div>
+          <!-- Time Elapsed & Duration -->
+          <div class="vfd-time-row">
+            <span class="vfd-time-digits" id="stereo-time-display">00:00 / 00:00</span>
+            <span class="vfd-sync-lag" id="stereo-sync-info">STEREO HI-FI</span>
+          </div>
+          <!-- 8-Band LED Graphic Equalizer -->
+          <div class="stereo-eq-meter" id="stereo-eq-meter">
+            <div class="eq-band"><div class="eq-pip"></div><div class="eq-pip"></div><div class="eq-pip"></div><div class="eq-pip"></div><div class="eq-pip"></div></div>
+            <div class="eq-band"><div class="eq-pip"></div><div class="eq-pip"></div><div class="eq-pip"></div><div class="eq-pip"></div><div class="eq-pip"></div></div>
+            <div class="eq-band"><div class="eq-pip"></div><div class="eq-pip"></div><div class="eq-pip"></div><div class="eq-pip"></div><div class="eq-pip"></div></div>
+            <div class="eq-band"><div class="eq-pip"></div><div class="eq-pip"></div><div class="eq-pip"></div><div class="eq-pip"></div><div class="eq-pip"></div></div>
+            <div class="eq-band"><div class="eq-pip"></div><div class="eq-pip"></div><div class="eq-pip"></div><div class="eq-pip"></div><div class="eq-pip"></div></div>
+            <div class="eq-band"><div class="eq-pip"></div><div class="eq-pip"></div><div class="eq-pip"></div><div class="eq-pip"></div><div class="eq-pip"></div></div>
+            <div class="eq-band"><div class="eq-pip"></div><div class="eq-pip"></div><div class="eq-pip"></div><div class="eq-pip"></div><div class="eq-pip"></div></div>
+            <div class="eq-band"><div class="eq-pip"></div><div class="eq-pip"></div><div class="eq-pip"></div><div class="eq-pip"></div><div class="eq-pip"></div></div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Scrubber Timeline Bar -->
+      <div class="stereo-scrub-row">
+        <span class="scrub-time" id="stereo-current-time">00:00</span>
+        <div class="stereo-progress-bar-wrap" id="stereo-progress-wrap" title="Klik / Geser untuk melompat ke menit tertentu (Sync ke semua penumpang)">
+          <div class="stereo-progress-fill" id="stereo-progress-fill" style="width: 0%;"></div>
+          <div class="stereo-progress-handle" id="stereo-progress-handle" style="left: 0%;"></div>
+        </div>
+        <span class="scrub-time" id="stereo-duration-time">00:00</span>
+      </div>
+
+      <!-- Controls & Input Deck -->
+      <div class="stereo-controls-deck">
+        <!-- Transport Buttons -->
+        <div class="stereo-transport-btns">
+          <button id="stereo-btn-prev" class="stereo-ctrl-btn" title="Lagu Sebelumnya">⏮</button>
+          <button id="stereo-btn-play" class="stereo-ctrl-btn btn-play-main" title="Play / Pause">⏯</button>
+          <button id="stereo-btn-stop" class="stereo-ctrl-btn" title="Stop">⏹</button>
+          <button id="stereo-btn-next" class="stereo-ctrl-btn" title="Lagu Selanjutnya">⏭</button>
+        </div>
+
+        <!-- Volume Knob / Slider -->
+        <div class="stereo-volume-wrap">
+          <button id="stereo-btn-mute" class="stereo-mute-btn" title="Mute Audio">VOL</button>
+          <input type="range" id="stereo-vol-slider" class="stereo-vol-range" min="0" max="100" value="75" title="Volume Suara">
+          <span id="stereo-vol-text" class="stereo-vol-label">75%</span>
+        </div>
+
+        <!-- Mini Video Preview Toggle -->
+        <button id="stereo-btn-toggle-video" class="stereo-btn-subtle" title="Tampilkan / Sembunyikan Layar Video YouTube"><span class="btn-icon-glyph">▣</span> MONITOR</button>
+      </div>
+
+      <!-- Search Bar -->
+      <div class="stereo-search-bar">
+        <div class="stereo-search-input-wrap">
+          <span class="stereo-search-icon">SEEK</span>
+          <input type="text" id="stereo-search-input" class="stereo-search-input" placeholder="Pencarian Track / Artis Audio..." spellcheck="false" autocomplete="off">
+          <button id="stereo-btn-clear-search" class="stereo-btn-clear" title="Bersihkan" style="display: none;">✕</button>
+        </div>
+        <button id="stereo-btn-search" class="stereo-btn-search" title="Cari Lagu di YouTube">SEEK ▶▶</button>
+      </div>
+
+      <!-- Search Results Dropdown List -->
+      <div id="stereo-search-results" class="stereo-search-results" style="display: none;">
+        <div class="results-header">
+          <div class="results-title-wrap">
+            <span class="results-icon">♫</span>
+            <span class="results-title">HASIL PENCARIAN TRACK</span>
+          </div>
+          <button id="stereo-btn-close-results" class="results-btn-close" title="Tutup Hasil Pencarian">✕ CLOSE</button>
+        </div>
+        <div id="stereo-results-list" class="results-list"></div>
+      </div>
+
+      <!-- Queue Panel (Antrean Lagu) -->
+      <div id="stereo-queue-panel" class="stereo-queue-panel" style="display: none;">
+        <div class="queue-header">
+          <div class="queue-title-wrap">
+            <span class="queue-icon">☰</span>
+            <span class="queue-title">DAFTAR TRACK KABIN</span>
+            <span id="queue-badge-count" class="queue-badge">0 Track</span>
+          </div>
+          <button id="queue-btn-clear-all" class="queue-btn-clear" title="Kosongkan Semua Track">CLEAR ALL ✕</button>
+        </div>
+        <div id="stereo-queue-list" class="queue-items-list">
+          <div class="queue-empty-state">
+            <span>Daftar track masih kosong. Cari lagu lalu klik <strong>+ TRACK</strong>!</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Video Slot Container (Audio-only in hidden-preview, toggled on by Video button) -->
+      <div id="stereo-video-container" class="stereo-video-box hidden-preview">
+        <div id="yt-player-slot"></div>
+      </div>
+    </div>
+
     <!-- Top Header Bar: Fujiwara Tofu Shop + Status Dialogue -->
     <div class="cluster-header">
-      <div class="tofu-plate">
+      <div class="tofu-plate" id="tofu-plate-btn" title="Klik untuk membuka/menutup Fujiwara Car Stereo (YouTube Music)">
         <span class="dot"></span>
         <span class="font-jp text-jp">藤原とうふ店 <span style="font-size: 9px; opacity: 0.85;">(自家用)</span></span>
         <span class="sub-badge">AE86</span>
+        <span class="tofu-music-tag" id="tofu-music-tag" title="Car Audio System">
+          <span class="music-note-icon">♫</span>
+          <span class="music-live-indicator"></span>
+        </span>
       </div>
 
       <div class="status-banner">
@@ -34,9 +190,21 @@
 
     <!-- Main Instrument Cluster Frame -->
     <div class="cluster-body">
-      <!-- Interactive Resize Grip Triangle -->
-      <div id="resize-grip" class="resize-grip" title="Tarik / Geser segitiga ini untuk ubah ukuran (Drag to resize)">
-        <svg viewBox="0 0 16 16"><polygon points="0,0 16,0 0,16"/></svg>
+      <!-- Interactive Corner Tools: Move & Resize Grips -->
+      <div class="cluster-corner-tools">
+        <div id="move-grip" class="corner-tool-btn move-grip" title="Tahan & Geser untuk memindahkan posisi klaster (Drag to Move) | Double-Click untuk reset posisi">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="5 9 2 12 5 15"></polyline>
+            <polyline points="9 5 12 2 15 5"></polyline>
+            <polyline points="15 19 12 22 9 19"></polyline>
+            <polyline points="19 9 22 12 19 15"></polyline>
+            <line x1="2" y1="12" x2="22" y2="12"></line>
+            <line x1="12" y1="2" x2="12" y2="22"></line>
+          </svg>
+        </div>
+        <div id="resize-grip" class="corner-tool-btn resize-grip" title="Tahan & Tarik untuk ubah ukuran klaster (Drag to Resize) | Double-Click untuk reset 100%">
+          <svg viewBox="0 0 16 16"><polygon points="0,0 16,0 0,16"/></svg>
+        </div>
       </div>
       <div class="cluster-trim-top"></div>
       <div class="scanlines"></div>
@@ -353,7 +521,8 @@
     </div>
   </main>
 
-  <!-- Telemetry Controller Script -->
-  <script src="script.js"></script>
+  <!-- YouTube IFrame API & Telemetry Controller Script -->
+  <script src="https://www.youtube.com/iframe_api"></script>
+  <script src="script.js?v=2.2"></script>
 </body>
 </html>
