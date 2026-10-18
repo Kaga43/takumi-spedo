@@ -417,6 +417,8 @@ function initDom() {
     charStateBadge: document.getElementById('char-state-badge'),
     dialogueJp: document.getElementById('dialogue-jp'),
     dialogueEn: document.getElementById('dialogue-en'),
+    statusDot: document.getElementById('status-dot'),
+    statusBanner: document.querySelector('.status-banner'),
     takumiChill: document.getElementById('takumi-face-chill'),
     takumiIntense: document.getElementById('takumi-face-intense'),
     takumiPanic: document.getElementById('takumi-face-panic'),
@@ -445,7 +447,37 @@ function initDom() {
     seg.className = 'sub-segment';
     el.engineBar.appendChild(seg);
   }
+
+  // Cache segment child collections for high-performance zero-recalc loops
+  el.rpmNodes = el.rpmBar.children;
+  el.fuelNodes = el.fuelBar.children;
+  el.engineNodes = el.engineBar.children;
 }
+
+// State cache for dirty-checking: DOM writes are strictly skipped when values don't change
+const renderCache = {
+  spdDigits: '',
+  speedUnit: '',
+  odoUnit: '',
+  isChiming: null,
+  isSeatbeltUnbuckled: null,
+  gearText: '',
+  isRedline: null,
+  rpmNumeric: '',
+  activeRpmCount: -1,
+  fuelPctVal: -1,
+  activeFuelSegs: -1,
+  healthPctVal: -1,
+  activeHealthSegs: -1,
+  odoDigits: '',
+  leftIndicator: null,
+  rightIndicator: null,
+  headlights: null,
+  isEngineWarning: null,
+  tiltAngleRounded: null,
+  cupStatusText: '',
+  takumiState: null
+};
 
 function renderDashboard() {
   if (!el.rpmBar) return;
@@ -455,7 +487,11 @@ function renderDashboard() {
   const currentRPM = Math.round(rpmRatio * MAX_4AGE_RPM);
 
   // 1. Digital Speed & Unit
-  el.speedDigits.textContent = spd.toString().padStart(3, '0');
+  const spdStr = spd.toString().padStart(3, '0');
+  if (renderCache.spdDigits !== spdStr) {
+    el.speedDigits.textContent = spdStr;
+    renderCache.spdDigits = spdStr;
+  }
   
   let unitLabel = 'KM/H';
   let odoUnitLabel = 'KM';
@@ -466,25 +502,39 @@ function renderDashboard() {
     unitLabel = 'KNOTS';
     odoUnitLabel = 'NM';
   }
-  el.speedUnitText.textContent = unitLabel;
-  el.odoUnit.textContent = odoUnitLabel;
+  if (renderCache.speedUnit !== unitLabel) {
+    el.speedUnitText.textContent = unitLabel;
+    renderCache.speedUnit = unitLabel;
+  }
+  if (renderCache.odoUnit !== odoUnitLabel) {
+    el.odoUnit.textContent = odoUnitLabel;
+    renderCache.odoUnit = odoUnitLabel;
+  }
 
   // 105 KM/H Chime Alert (when in KMH mode)
   const isChiming = (telemetry.speedMode === 0 && spd >= CHIME_SPEED_KMH);
+  if (renderCache.isChiming !== isChiming) {
+    renderCache.isChiming = isChiming;
+    if (isChiming) {
+      el.speedDigits.className = 'font-digital speed-digits glow-red';
+      el.speedDigits.style.color = '#ff1e42';
+      el.chime.className = 'chime-indicator active flash-alert';
+    } else {
+      el.speedDigits.className = 'font-digital speed-digits glow-amber';
+      el.speedDigits.style.color = '#ff9d00';
+      el.chime.className = 'chime-indicator';
+    }
+  }
   if (isChiming) {
-    el.speedDigits.className = 'font-digital speed-digits glow-red';
-    el.speedDigits.style.color = '#ff1e42';
-    el.chime.className = 'chime-indicator active flash-alert';
     playAe86Chime();
-  } else {
-    el.speedDigits.className = 'font-digital speed-digits glow-amber';
-    el.speedDigits.style.color = '#ff9d00';
-    el.chime.className = 'chime-indicator';
   }
 
   // 2. Seatbelt Warning Reminder (Audio + Blinking Light)
   const isSeatbeltUnbuckled = !telemetry.seatbelts;
-  setIndicatorState(el.indSeatbelt, isSeatbeltUnbuckled, 'active-red blink-signal');
+  if (renderCache.isSeatbeltUnbuckled !== isSeatbeltUnbuckled) {
+    renderCache.isSeatbeltUnbuckled = isSeatbeltUnbuckled;
+    setIndicatorState(el.indSeatbelt, isSeatbeltUnbuckled, 'active-red blink-signal');
+  }
   if (isSeatbeltUnbuckled && telemetry.engine) {
     playSeatbeltReminderChime();
   }
@@ -493,158 +543,236 @@ function renderDashboard() {
   let gearText = telemetry.gear;
   if (gearText === 0 || gearText === '0' || gearText === 'N') gearText = 'N';
   else if (gearText === -1 || gearText === '-1' || gearText === 'R') gearText = 'R';
-  el.gearBox.textContent = gearText;
-
-  const isRedline = rpmRatio >= REDLINE_RATIO;
-  if (isRedline && telemetry.engine) {
-    el.shiftLight.className = 'shift-pill active flash-alert';
-    el.gearBox.className = 'font-digital gear-box redline flash-alert';
-  } else {
-    el.shiftLight.className = 'shift-pill';
-    el.gearBox.className = 'font-digital gear-box';
+  if (renderCache.gearText !== gearText) {
+    el.gearBox.textContent = gearText;
+    renderCache.gearText = gearText;
   }
 
-  // 4. 24-Segment RPM Bar - Instant & Snappy Real-Time Drop
-  el.rpmNumeric.textContent = currentRPM.toString().padStart(4, '0');
+  const isRedline = (rpmRatio >= REDLINE_RATIO && telemetry.engine);
+  if (renderCache.isRedline !== isRedline) {
+    renderCache.isRedline = isRedline;
+    if (isRedline) {
+      el.shiftLight.className = 'shift-pill active flash-alert';
+      el.gearBox.className = 'font-digital gear-box redline flash-alert';
+    } else {
+      el.shiftLight.className = 'shift-pill';
+      el.gearBox.className = 'font-digital gear-box';
+    }
+  }
+
+  // 4. 24-Segment RPM Bar - Instant & Snappy Real-Time Drop with Zero-Thrash Caching
+  const rpmStr = currentRPM.toString().padStart(4, '0');
+  if (renderCache.rpmNumeric !== rpmStr) {
+    el.rpmNumeric.textContent = rpmStr;
+    renderCache.rpmNumeric = rpmStr;
+  }
+
   const activeRpmCount = Math.round(rpmRatio * RPM_SEGMENTS);
-
-  const rpmNodes = el.rpmBar.children;
-  for (let i = 0; i < RPM_SEGMENTS; i++) {
-    const seg = rpmNodes[i];
-    seg.className = 'rpm-seg';
-    if (i < activeRpmCount) {
-      if (i >= 18) seg.classList.add('active-red');
-      else if (i >= 11) seg.classList.add('active-amber');
-      else seg.classList.add('active-green');
+  if (renderCache.activeRpmCount !== activeRpmCount) {
+    renderCache.activeRpmCount = activeRpmCount;
+    const rpmNodes = el.rpmNodes || el.rpmBar.children;
+    for (let i = 0; i < RPM_SEGMENTS; i++) {
+      const seg = rpmNodes[i];
+      seg.className = 'rpm-seg';
+      if (i < activeRpmCount) {
+        if (i >= 18) seg.classList.add('active-red');
+        else if (i >= 11) seg.classList.add('active-amber');
+        else seg.classList.add('active-green');
+      }
     }
   }
 
-  // 5. Fuel Bar (15 Segments)
+  // 5. Fuel Bar (15 Segments) - Updated ONLY on change
   const fuelPctVal = Math.round(telemetry.fuel * 100);
-  el.fuelPct.textContent = `${fuelPctVal}%`;
   const activeFuelSegs = Math.round(telemetry.fuel * SUB_SEGMENTS);
-  for (let i = 0; i < SUB_SEGMENTS; i++) {
-    const seg = el.fuelBar.children[i];
-    seg.className = 'sub-segment';
-    if (i < activeFuelSegs) {
-      seg.classList.add(fuelPctVal <= 15 ? 'active-red' : 'active-amber');
+  if (renderCache.fuelPctVal !== fuelPctVal || renderCache.activeFuelSegs !== activeFuelSegs) {
+    renderCache.fuelPctVal = fuelPctVal;
+    renderCache.activeFuelSegs = activeFuelSegs;
+    el.fuelPct.textContent = `${fuelPctVal}%`;
+    const fuelNodes = el.fuelNodes || el.fuelBar.children;
+    for (let i = 0; i < SUB_SEGMENTS; i++) {
+      const seg = fuelNodes[i];
+      seg.className = 'sub-segment';
+      if (i < activeFuelSegs) {
+        seg.classList.add(fuelPctVal <= 15 ? 'active-red' : 'active-amber');
+      }
     }
   }
 
-  // 6. Engine Health Bar (15 Segments)
+  // 6. Engine Health Bar (15 Segments) - Updated ONLY on change
   const healthPctVal = Math.round(telemetry.health * 100);
-  el.enginePct.textContent = `${healthPctVal}%`;
   const activeHealthSegs = Math.round(telemetry.health * SUB_SEGMENTS);
-  for (let i = 0; i < SUB_SEGMENTS; i++) {
-    const seg = el.engineBar.children[i];
-    seg.className = 'sub-segment';
-    if (i < activeHealthSegs) {
-      seg.classList.add(healthPctVal <= 35 ? 'active-red' : 'active-green');
+  if (renderCache.healthPctVal !== healthPctVal || renderCache.activeHealthSegs !== activeHealthSegs) {
+    renderCache.healthPctVal = healthPctVal;
+    renderCache.activeHealthSegs = activeHealthSegs;
+    el.enginePct.textContent = `${healthPctVal}%`;
+    const engineNodes = el.engineNodes || el.engineBar.children;
+    for (let i = 0; i < SUB_SEGMENTS; i++) {
+      const seg = engineNodes[i];
+      seg.className = 'sub-segment';
+      if (i < activeHealthSegs) {
+        seg.classList.add(healthPctVal <= 35 ? 'active-red' : 'active-green');
+      }
     }
   }
 
-  // 7. Odometer
-  el.odoDigits.textContent = telemetry.odometer.toFixed(1).padStart(8, '0');
-
-  // 8. Warning Indicators
-  setIndicatorState(el.indLeft, telemetry.leftIndicator, 'active-green blink-signal');
-  setIndicatorState(el.indRight, telemetry.rightIndicator, 'active-green blink-signal');
-
-  // Headlights: 0: Off (dim low-beam), 1: Low Beam (Green, angled down), 2: High Beam (Blue, straight forward)
-  if (telemetry.headlights === 2) {
-    if (el.svgLightLow) el.svgLightLow.style.display = 'none';
-    if (el.svgLightHigh) el.svgLightHigh.style.display = 'block';
-    setIndicatorState(el.indLights, true, 'active-blue');
-  } else if (telemetry.headlights === 1) {
-    if (el.svgLightLow) el.svgLightLow.style.display = 'block';
-    if (el.svgLightHigh) el.svgLightHigh.style.display = 'none';
-    setIndicatorState(el.indLights, true, 'active-green');
-  } else {
-    if (el.svgLightLow) el.svgLightLow.style.display = 'block';
-    if (el.svgLightHigh) el.svgLightHigh.style.display = 'none';
-    setIndicatorState(el.indLights, false, '');
+  // 7. Odometer - Updated ONLY on change
+  const odoStr = telemetry.odometer.toFixed(1).padStart(8, '0');
+  if (renderCache.odoDigits !== odoStr) {
+    el.odoDigits.textContent = odoStr;
+    renderCache.odoDigits = odoStr;
   }
 
-  const isEngineWarning = !telemetry.engine || healthPctVal < 40;
-  setIndicatorState(el.indEngine, isEngineWarning, 'active-amber blink-signal');
+  // 8. Warning Indicators & Headlights
+  if (renderCache.leftIndicator !== telemetry.leftIndicator) {
+    renderCache.leftIndicator = telemetry.leftIndicator;
+    setIndicatorState(el.indLeft, telemetry.leftIndicator, 'active-green blink-signal');
+  }
+  if (renderCache.rightIndicator !== telemetry.rightIndicator) {
+    renderCache.rightIndicator = telemetry.rightIndicator;
+    setIndicatorState(el.indRight, telemetry.rightIndicator, 'active-green blink-signal');
+  }
 
-  // 9. Water Cup Tilt Physics (Simulation)
+  if (renderCache.headlights !== telemetry.headlights) {
+    renderCache.headlights = telemetry.headlights;
+    if (telemetry.headlights === 2) {
+      if (el.svgLightLow) el.svgLightLow.style.display = 'none';
+      if (el.svgLightHigh) el.svgLightHigh.style.display = 'block';
+      setIndicatorState(el.indLights, true, 'active-blue');
+    } else if (telemetry.headlights === 1) {
+      if (el.svgLightLow) el.svgLightLow.style.display = 'block';
+      if (el.svgLightHigh) el.svgLightHigh.style.display = 'none';
+      setIndicatorState(el.indLights, true, 'active-green');
+    } else {
+      if (el.svgLightLow) el.svgLightLow.style.display = 'block';
+      if (el.svgLightHigh) el.svgLightHigh.style.display = 'none';
+      setIndicatorState(el.indLights, false, '');
+    }
+  }
+
+  const isEngineWarning = (!telemetry.engine || healthPctVal < 40);
+  if (renderCache.isEngineWarning !== isEngineWarning) {
+    renderCache.isEngineWarning = isEngineWarning;
+    setIndicatorState(el.indEngine, isEngineWarning, 'active-amber blink-signal');
+  }
+
+  // 9. Water Cup Tilt Physics (Simulation) - 0.5-deg step throttle prevents SVG re-rasterization thrash
   const speedDelta = spd - telemetry.lastCalculatedSpeed;
   telemetry.lastCalculatedSpeed = spd;
   let tiltAngle = Math.max(-24, Math.min(24, speedDelta * 2.2 + (telemetry.leftIndicator ? -10 : 0) + (telemetry.rightIndicator ? 10 : 0)));
   if (spd > 110) tiltAngle += Math.sin(performance.now() / 90) * 7;
-  el.waterSlosh.style.transform = `rotate(${tiltAngle.toFixed(1)}deg)`;
-
-  if (Math.abs(tiltAngle) > 14 || healthPctVal < 40) {
-    el.cupStatus.textContent = 'SPILL!';
-    el.cupStatus.style.color = '#ff1e42';
-    el.spill1.style.opacity = '1';
-    el.spill2.style.opacity = '1';
-  } else if (spd > 90) {
-    el.cupStatus.textContent = 'EDGE';
-    el.cupStatus.style.color = '#ff9d00';
-    el.spill1.style.opacity = '0';
-    el.spill2.style.opacity = '0';
-  } else {
-    el.cupStatus.textContent = 'SAFE';
-    el.cupStatus.style.color = '#00f59b';
-    el.spill1.style.opacity = '0';
-    el.spill2.style.opacity = '0';
+  
+  const roundedTilt = Math.round(tiltAngle * 2) / 2;
+  if (renderCache.tiltAngleRounded !== roundedTilt) {
+    renderCache.tiltAngleRounded = roundedTilt;
+    el.waterSlosh.style.transform = `rotate(${roundedTilt}deg)`;
   }
 
-  // 10. Takumi Reactive Expressions
+  let nextCupStatus = 'SAFE';
+  let cupColor = '#00f59b';
+  let spillOpacity = '0';
+  if (Math.abs(tiltAngle) > 14 || healthPctVal < 40) {
+    nextCupStatus = 'SPILL!';
+    cupColor = '#ff1e42';
+    spillOpacity = '1';
+  } else if (spd > 90) {
+    nextCupStatus = 'EDGE';
+    cupColor = '#ff9d00';
+    spillOpacity = '0';
+  }
+  if (renderCache.cupStatusText !== nextCupStatus) {
+    renderCache.cupStatusText = nextCupStatus;
+    el.cupStatus.textContent = nextCupStatus;
+    el.cupStatus.style.color = cupColor;
+    el.spill1.style.opacity = spillOpacity;
+    el.spill2.style.opacity = spillOpacity;
+  }
+
+  // 10. Takumi Reactive Expressions - Cached state prevents daily DOM display resets
+  let nextTakumiState = 'CHILL';
   if (!telemetry.engine) {
-    // STATE 0: ENGINE OFF — TAKUMI IS SLEEPING PEACEFULLY
-    if (el.takumiChill) el.takumiChill.style.display = 'none';
-    if (el.takumiIntense) el.takumiIntense.style.display = 'none';
-    if (el.takumiPanic) el.takumiPanic.style.display = 'none';
-    if (el.takumiSleep) el.takumiSleep.style.display = 'block';
-    el.takumiAura.setAttribute('opacity', '0');
-    el.charFrame.className = 'char-frame manga-halftone';
-    el.charSpeedlines.style.opacity = '0';
-    el.charStateBadge.textContent = 'SLEEP';
-    el.charStateBadge.style.color = '#38bdf8';
-    el.dialogueJp.textContent = '「仮眠中… Zzz」';
-    el.dialogueEn.textContent = 'ENGINE OFF // SLEEPING';
+    nextTakumiState = 'SLEEP';
   } else if (healthPctVal < 40) {
-    // STATE 3: ENGINE CRITICAL DAMAGE ("NANI?!")
-    if (el.takumiChill) el.takumiChill.style.display = 'none';
-    if (el.takumiIntense) el.takumiIntense.style.display = 'none';
-    if (el.takumiSleep) el.takumiSleep.style.display = 'none';
-    if (el.takumiPanic) el.takumiPanic.style.display = 'block';
-    el.takumiAura.setAttribute('opacity', '0');
-    el.charFrame.className = 'char-frame manga-halftone-danger shake-anim';
-    el.charSpeedlines.style.opacity = '0.35';
-    el.charStateBadge.textContent = 'DANGER';
-    el.charStateBadge.style.color = '#ff1e42';
-    el.dialogueJp.textContent = '「エンジンが…！？」';
-    el.dialogueEn.textContent = 'ENGINE CRITICAL ALERT!!';
+    nextTakumiState = 'DANGER';
   } else if ((telemetry.speedMode === 1 ? spd >= 100 : (telemetry.speedMode === 2 ? spd >= 86 : spd >= 160)) || (telemetry.speedMs >= 44.5)) {
-    // STATE 2: TAKUMI HIGH-SPEED SERIOUS FOCUS (>100 MPH / ~160 KM/H)
-    if (el.takumiChill) el.takumiChill.style.display = 'none';
-    if (el.takumiSleep) el.takumiSleep.style.display = 'none';
-    if (el.takumiPanic) el.takumiPanic.style.display = 'none';
-    if (el.takumiIntense) el.takumiIntense.style.display = 'block';
-    el.takumiAura.setAttribute('opacity', '1');
-    el.charFrame.className = 'char-frame manga-halftone-intense';
-    el.charSpeedlines.style.opacity = '0.9';
-    el.charStateBadge.textContent = 'FOCUS';
-    el.charStateBadge.style.color = '#ff9d00';
-    el.dialogueJp.textContent = '「集中しろ…ここからが本番だ」';
-    el.dialogueEn.textContent = 'HIGH SPEED // FULL CONCENTRATION';
-  } else {
-    // STATE 1: CHILL TOFU DELIVERY CRUISE
-    if (el.takumiSleep) el.takumiSleep.style.display = 'none';
-    if (el.takumiIntense) el.takumiIntense.style.display = 'none';
-    if (el.takumiPanic) el.takumiPanic.style.display = 'none';
-    if (el.takumiChill) el.takumiChill.style.display = 'block';
-    el.takumiAura.setAttribute('opacity', '0');
-    el.charFrame.className = 'char-frame manga-halftone';
-    el.charSpeedlines.style.opacity = '0';
-    el.charStateBadge.textContent = 'CHILL';
-    el.charStateBadge.style.color = '#00f59b';
-    el.dialogueJp.textContent = '「藤原とうふ店・配達中」';
-    el.dialogueEn.textContent = 'TOFU DELIVERY CRUISE';
+    nextTakumiState = 'FOCUS';
+  }
+
+  if (renderCache.takumiState !== nextTakumiState) {
+    renderCache.takumiState = nextTakumiState;
+    if (nextTakumiState === 'SLEEP') {
+      if (el.takumiChill) el.takumiChill.style.display = 'none';
+      if (el.takumiIntense) el.takumiIntense.style.display = 'none';
+      if (el.takumiPanic) el.takumiPanic.style.display = 'none';
+      if (el.takumiSleep) el.takumiSleep.style.display = 'block';
+      el.takumiAura.setAttribute('opacity', '0');
+      el.charFrame.className = 'char-frame manga-halftone';
+      el.charSpeedlines.style.opacity = '0';
+      el.charStateBadge.textContent = 'SLEEP';
+      el.charStateBadge.style.color = '#38bdf8';
+      el.dialogueJp.textContent = '「仮眠中… Zzz」';
+      el.dialogueJp.style.color = '#38bdf8';
+      el.dialogueEn.textContent = 'ENGINE OFF // SLEEPING';
+      if (el.statusDot) {
+        el.statusDot.style.background = '#38bdf8';
+        el.statusDot.style.boxShadow = '0 0 6px #38bdf8';
+      }
+      if (el.statusBanner) el.statusBanner.style.borderColor = 'rgba(56, 189, 248, 0.45)';
+    } else if (nextTakumiState === 'DANGER') {
+      if (el.takumiChill) el.takumiChill.style.display = 'none';
+      if (el.takumiIntense) el.takumiIntense.style.display = 'none';
+      if (el.takumiSleep) el.takumiSleep.style.display = 'none';
+      if (el.takumiPanic) el.takumiPanic.style.display = 'block';
+      el.takumiAura.setAttribute('opacity', '0');
+      el.charFrame.className = 'char-frame manga-halftone-danger shake-anim';
+      el.charSpeedlines.style.opacity = '0.35';
+      el.charStateBadge.textContent = 'DANGER';
+      el.charStateBadge.style.color = '#ff1e42';
+      el.dialogueJp.textContent = '「エンジンが…！？」';
+      el.dialogueJp.style.color = '#ff1e42';
+      el.dialogueEn.textContent = 'ENGINE CRITICAL ALERT!!';
+      if (el.statusDot) {
+        el.statusDot.style.background = '#ff1e42';
+        el.statusDot.style.boxShadow = '0 0 6px #ff1e42';
+      }
+      if (el.statusBanner) el.statusBanner.style.borderColor = 'rgba(255, 30, 66, 0.6)';
+    } else if (nextTakumiState === 'FOCUS') {
+      if (el.takumiChill) el.takumiChill.style.display = 'none';
+      if (el.takumiSleep) el.takumiSleep.style.display = 'none';
+      if (el.takumiPanic) el.takumiPanic.style.display = 'none';
+      if (el.takumiIntense) el.takumiIntense.style.display = 'block';
+      el.takumiAura.setAttribute('opacity', '1');
+      el.charFrame.className = 'char-frame manga-halftone-intense';
+      el.charSpeedlines.style.opacity = '0.9';
+      el.charStateBadge.textContent = 'FOCUS';
+      el.charStateBadge.style.color = '#ff9d00';
+      el.dialogueJp.textContent = '「集中しろ…！」';
+      el.dialogueJp.style.color = '#ff9d00';
+      el.dialogueEn.textContent = 'FULL CONCENTRATION';
+      if (el.statusDot) {
+        el.statusDot.style.background = '#ff9d00';
+        el.statusDot.style.boxShadow = '0 0 6px #ff9d00';
+      }
+      if (el.statusBanner) el.statusBanner.style.borderColor = 'rgba(255, 157, 0, 0.5)';
+    } else {
+      if (el.takumiSleep) el.takumiSleep.style.display = 'none';
+      if (el.takumiIntense) el.takumiIntense.style.display = 'none';
+      if (el.takumiPanic) el.takumiPanic.style.display = 'none';
+      if (el.takumiChill) el.takumiChill.style.display = 'block';
+      el.takumiAura.setAttribute('opacity', '0');
+      el.charFrame.className = 'char-frame manga-halftone';
+      el.charSpeedlines.style.opacity = '0';
+      el.charStateBadge.textContent = 'CHILL';
+      el.charStateBadge.style.color = '#00f59b';
+      el.dialogueJp.textContent = '「藤原とうふ店・配達中」';
+      el.dialogueJp.style.color = '#00f59b';
+      el.dialogueEn.textContent = 'TOFU DELIVERY CRUISE';
+      if (el.statusDot) {
+        el.statusDot.style.background = '#00f59b';
+        el.statusDot.style.boxShadow = '0 0 6px #00f59b';
+      }
+      if (el.statusBanner) el.statusBanner.style.borderColor = 'rgba(0, 245, 155, 0.45)';
+    }
   }
 }
 
@@ -1722,8 +1850,17 @@ function updateStereoPlayStateUI(isPlaying) {
   if (tofuPlate) tofuPlate.classList.toggle('stereo-open', isPlaying);
 }
 
+let cachedEqBands = null;
+function getEqBands() {
+  if (!cachedEqBands || cachedEqBands.length === 0) {
+    cachedEqBands = Array.from(document.querySelectorAll('#stereo-eq-meter .eq-band'));
+  }
+  return cachedEqBands;
+}
+
 function animateEqualizer(isActive) {
-  const bands = document.querySelectorAll('#stereo-eq-meter .eq-band');
+  if (!carMusic.isOpen) return; // Zero DOM updates when deck is closed
+  const bands = getEqBands();
   bands.forEach((band) => {
     const pips = band.children;
     const count = isActive ? Math.floor(Math.random() * 5) + 1 : 0;
@@ -1738,6 +1875,25 @@ function animateEqualizer(isActive) {
   });
 }
 
+function refreshStereoProgressUI() {
+  const fillEl = document.getElementById('stereo-progress-fill');
+  const handleEl = document.getElementById('stereo-progress-handle');
+  const curTimeEl = document.getElementById('stereo-current-time');
+  const durTimeEl = document.getElementById('stereo-duration-time');
+  const vfdTimeEl = document.getElementById('stereo-time-display');
+
+  if (carMusic.currentDuration > 0) {
+    const pct = Math.min(100, Math.max(0, (carMusic.currentPosition / carMusic.currentDuration) * 100));
+    if (fillEl) fillEl.style.width = `${pct}%`;
+    if (handleEl) handleEl.style.left = `${pct}%`;
+  }
+  const curStr = formatTime(carMusic.currentPosition);
+  const durStr = formatTime(carMusic.currentDuration);
+  if (curTimeEl) curTimeEl.textContent = curStr;
+  if (durTimeEl) durTimeEl.textContent = durStr;
+  if (vfdTimeEl) vfdTimeEl.textContent = `${curStr} / ${durStr}`;
+}
+
 function startStereoAnimLoop() {
   if (stereoAnimInterval) return;
   const fillEl = document.getElementById('stereo-progress-fill');
@@ -1748,7 +1904,7 @@ function startStereoAnimLoop() {
 
   stereoAnimInterval = setInterval(() => {
     if (!carMusic.isPlaying) {
-      animateEqualizer(false);
+      if (carMusic.isOpen) animateEqualizer(false);
       return;
     }
 
@@ -1758,6 +1914,9 @@ function startStereoAnimLoop() {
     } else {
       carMusic.currentPosition += 0.2;
     }
+
+    // High performance optimization: skip all visual DOM updates if deck is closed!
+    if (!carMusic.isOpen) return;
 
     if (!carMusic.isDraggingScrubber && carMusic.currentDuration > 0) {
       const pct = Math.min(100, Math.max(0, (carMusic.currentPosition / carMusic.currentDuration) * 100));
@@ -1786,6 +1945,7 @@ function openStereoDeck(autoCloseSeconds = 0) {
   }
 
   carMusic.isOpen = true;
+  refreshStereoProgressUI();
   modal.classList.remove('deck-closing');
   modal.style.display = 'block';
   modal.style.visibility = 'visible';
@@ -2366,27 +2526,10 @@ function initStereoDeck() {
         releaseNuiFocus(true);
         return;
       }
-
-      // Intercept and prevent T and all printable characters from triggering FiveM chatbox or vehicle controls
-      if (!e.ctrlKey && !e.altKey && !e.metaKey && e.key && e.key.length === 1) {
-        e.preventDefault();
-        const start = searchInput.selectionStart || 0;
-        const end = searchInput.selectionEnd || 0;
-        const val = searchInput.value;
-        searchInput.value = val.substring(0, start) + e.key + val.substring(end);
-        searchInput.selectionStart = searchInput.selectionEnd = start + 1;
-        searchInput.dispatchEvent(new Event('input', { bubbles: true }));
-        return;
-      }
     });
 
     searchInput.addEventListener('keypress', (e) => e.stopPropagation());
-    searchInput.addEventListener('keyup', (e) => {
-      e.stopPropagation();
-      if (e.key && e.key.toLowerCase() === 't') {
-        e.preventDefault();
-      }
-    });
+    searchInput.addEventListener('keyup', (e) => e.stopPropagation());
 
     searchInput.addEventListener('mousedown', (e) => e.stopPropagation());
     searchInput.addEventListener('pointerdown', (e) => e.stopPropagation());
@@ -2792,57 +2935,92 @@ window.addEventListener('pointerup', handleGlobalRelease);
 window.addEventListener('touchend', handleGlobalRelease);
 
 // Keyboard Management:
-// When typing in search input, stereo deck is open, or interacting with grips,
-// suppress 'T' completely so FiveM chatbox NEVER opens!
-window.addEventListener('keydown', (e) => {
-  // 1. If typing in input or textarea, ALWAYS intercept and prevent 't' / 'T' leak to FiveM chat
-  if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
-    e.stopPropagation();
-    if (e.key === 'Enter' || e.keyCode === 13) {
-      e.preventDefault();
-      e.target.blur();
-      releaseNuiFocus(true);
-      if (typeof handlePerformSearchGlobal === 'function') {
-        handlePerformSearchGlobal();
-      }
-      return;
-    }
-    if (e.key === 'Escape' || e.keyCode === 27) {
-      e.preventDefault();
-      e.target.blur();
-      releaseNuiFocus(true);
-      return;
-    }
-    // Prevent default on printable keys so CEF never forwards WM_KEYDOWN to FiveM / GTA V!
-    if (!e.ctrlKey && !e.altKey && !e.metaKey && e.key && e.key.length === 1) {
-      e.preventDefault();
-      const input = e.target;
-      const start = input.selectionStart || 0;
-      const end = input.selectionEnd || 0;
-      const val = input.value;
-      input.value = val.substring(0, start) + e.key + val.substring(end);
-      input.selectionStart = input.selectionEnd = start + 1;
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      return;
-    }
-    return;
-  }
+// Strict Root-Level Capturing Key Isolator:
+// Intercepts 'T' / 't' in the CAPTURE phase before CEF/FiveM message pump can dispatch it to chat
+['keydown', 'keypress', 'keyup'].forEach((evtType) => {
+  window.addEventListener(evtType, (e) => {
+    const input = document.getElementById('stereo-search-input');
+    const isTargetInput = (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA'));
+    const isInputActive = isTargetInput || (input && document.activeElement === input);
 
-  // 2. If stereo deck is open or user is currently manipulating/dragging grips:
-  // Suppress 'T' / 't' completely so the chat box NEVER opens!
-  if (carMusic.isOpen || isInteractingGrip) {
-    if (e.key && e.key.toLowerCase() === 't') {
-      e.preventDefault();
-      e.stopPropagation();
-      return;
+    // 1. If typing in search input, strictly isolate 'T' / 't' and all game keys
+    if (isInputActive) {
+      const isKeyT = (e.key === 't' || e.key === 'T' || e.code === 'KeyT' || e.keyCode === 84 || e.which === 84);
+
+      if (isKeyT) {
+        e.stopImmediatePropagation();
+        e.stopPropagation();
+        e.preventDefault();
+
+        if (evtType === 'keydown' && input) {
+          const start = input.selectionStart || 0;
+          const end = input.selectionEnd || 0;
+          const val = input.value;
+          const char = e.shiftKey ? 'T' : 't';
+          input.value = val.substring(0, start) + char + val.substring(end);
+          input.selectionStart = input.selectionEnd = start + 1;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        return false;
+      }
+
+      if (e.key === 'Enter' || e.keyCode === 13) {
+        if (evtType === 'keydown') {
+          e.preventDefault();
+          e.stopPropagation();
+          if (input) input.blur();
+          releaseNuiFocus(true);
+          if (typeof handlePerformSearchGlobal === 'function') {
+            handlePerformSearchGlobal();
+          }
+        }
+        return;
+      }
+
+      if (e.key === 'Escape' || e.keyCode === 27) {
+        if (evtType === 'keydown') {
+          e.preventDefault();
+          e.stopPropagation();
+          if (input) input.blur();
+          releaseNuiFocus(true);
+        }
+        return;
+      }
+
+      // Prevent vehicle driving keys (W, A, S, D, Space, F) from triggering GTA vehicle controls while typing in search
+      if (!e.ctrlKey && !e.altKey && !e.metaKey && e.key && e.key.length === 1 && evtType === 'keydown') {
+        const isGameControlKey = ['w', 'a', 's', 'd', ' ', 'f', 'r', 'g', 'h'].includes(e.key.toLowerCase());
+        if (isGameControlKey) {
+          e.preventDefault();
+          e.stopPropagation();
+          const start = input.selectionStart || 0;
+          const end = input.selectionEnd || 0;
+          const val = input.value;
+          input.value = val.substring(0, start) + e.key + val.substring(end);
+          input.selectionStart = input.selectionEnd = start + 1;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          return false;
+        }
+      }
     }
-    if (e.key === 'Escape') {
-      if (carMusic.isOpen) toggleStereoDeck();
-      releaseNuiFocus(true);
-      return;
+
+    // 2. When deck is open or user is dragging grips, also block stray 'T' keypresses
+    if (carMusic.isOpen || isInteractingGrip) {
+      const isKeyT = (e.key === 't' || e.key === 'T' || e.code === 'KeyT' || e.keyCode === 84 || e.which === 84);
+      if (isKeyT) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return false;
+      }
+      if (e.key === 'Escape' && evtType === 'keydown') {
+        if (carMusic.isOpen) toggleStereoDeck();
+        releaseNuiFocus(true);
+        return;
+      }
     }
-  }
-}, true);
+  }, true); // TRUE = Root capture phase!
+});
 
 // Initialize on DOM Ready
 document.addEventListener('DOMContentLoaded', () => {
