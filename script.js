@@ -821,7 +821,7 @@ const carMusic = {
   serverTime: 0,
   volume: getSavedStereoVolume(),
   isMuted: false,
-  isHost: true,
+  isHost: false, // Default is false: newcomer starts as passenger until choosing to control audio
   currentDuration: 0,
   currentPosition: 0,
   isDraggingScrubber: false,
@@ -942,9 +942,16 @@ function handlePlayerError(e) {
   }
 }
 
+let pendingPlayerCallbacks = [];
+
 function ensureYouTubePlayer(callback) {
+  if (callback) pendingPlayerCallbacks.push(callback);
+
   if (ytReady && ytPlayer && typeof ytPlayer.loadVideoById === 'function') {
-    if (callback) callback(ytPlayer);
+    while (pendingPlayerCallbacks.length > 0) {
+      const cb = pendingPlayerCallbacks.shift();
+      try { cb(ytPlayer); } catch (e) {}
+    }
     return;
   }
   let slot = document.getElementById('yt-player-slot');
@@ -955,7 +962,10 @@ function ensureYouTubePlayer(callback) {
       slot = document.getElementById('yt-player-slot');
     }
   }
-  if (!slot || !window.YT || !window.YT.Player) return;
+  if (!slot || !window.YT || !window.YT.Player) {
+    // API not ready yet; callback will run in onReady when onYouTubeIframeAPIReady triggers
+    return;
+  }
 
   try {
     ytPlayer = new YT.Player('yt-player-slot', {
@@ -980,18 +990,22 @@ function ensureYouTubePlayer(callback) {
             if (typeof ytPlayer.setVolume === 'function') ytPlayer.setVolume(carMusic.volume);
             if (typeof ytPlayer.unMute === 'function' && !carMusic.isMuted) ytPlayer.unMute();
           } catch (err) {}
-          if (carMusic.isPlaying && carMusic.videoId) {
+          if (pendingPlayerCallbacks.length > 0) {
+            while (pendingPlayerCallbacks.length > 0) {
+              const cb = pendingPlayerCallbacks.shift();
+              try { cb(ytPlayer); } catch (e) {}
+            }
+          } else if (carMusic.isPlaying && carMusic.videoId && carMusic.videoId !== STANDBY_VIDEO_ID) {
             ytPlayer.loadVideoById({
               videoId: carMusic.videoId,
-              startSeconds: Math.floor(carMusic.startSeconds)
+              startSeconds: Math.floor(carMusic.startSeconds || 0)
             });
             setTimeout(() => {
               if (carMusic.isPlaying && typeof ytPlayer.playVideo === 'function') {
                 ytPlayer.playVideo();
               }
-            }, 500);
+            }, 300);
           }
-          if (callback) callback(ytPlayer);
         },
         onStateChange: handlePlayerStateChange,
         onError: handlePlayerError
@@ -1613,12 +1627,11 @@ function syncTrackAsPassenger(data) {
           videoId: data.videoId,
           startSeconds: Math.floor(targetSeconds)
         });
-        p.seekTo(targetSeconds, true);
         if (data.isPlaying) p.playVideo();
         else p.pauseVideo();
       } else {
         const current = p.getCurrentTime ? p.getCurrentTime() : 0;
-        if (Math.abs(current - targetSeconds) > 2.5) {
+        if (Math.abs(current - targetSeconds) > 10.0) {
           p.seekTo(targetSeconds, true);
         }
         if (data.isPlaying) p.playVideo();
@@ -1668,6 +1681,8 @@ function seekTrackAsDriver(seconds) {
     }
   }
 
+  carMusic.isHost = true;
+  updateRoleDisplay();
   startCabinHeartbeat();
 
   broadcastMusicSync('seek', {
@@ -1691,6 +1706,8 @@ function togglePlayPause() {
     clearTimeout(cassetteInsertTimeout);
     cassetteInsertTimeout = null;
   }
+  carMusic.isHost = true;
+  updateRoleDisplay();
   if (carMusic.isPlaying) {
     carMusic.isPlaying = false;
     const current = (ytReady && ytPlayer && ytPlayer.getCurrentTime) ? ytPlayer.getCurrentTime() : carMusic.currentPosition;
@@ -2066,8 +2083,22 @@ function getCabinTopic() {
 }
 
 function startCabinHeartbeat() {
-  // Disabled: Clean Event-Driven Sync prevents continuous seek-stutter and network lag loops
-  stopCabinHeartbeat();
+  if (cabinHeartbeatInterval) return;
+  cabinHeartbeatInterval = setInterval(() => {
+    if (carMusic.isHost && carMusic.isPlaying && carMusic.videoId && carMusic.videoId !== STANDBY_VIDEO_ID) {
+      const pos = (ytReady && ytPlayer && typeof ytPlayer.getCurrentTime === 'function')
+        ? ytPlayer.getCurrentTime()
+        : (carMusic.currentPosition || 0);
+
+      publishCabinMessage('HEARTBEAT', {
+        videoId: carMusic.videoId,
+        title: carMusic.title,
+        position: pos,
+        serverTime: Date.now(),
+        isPlaying: true
+      });
+    }
+  }, 4000);
 }
 
 function stopCabinHeartbeat() {
@@ -2101,7 +2132,12 @@ function initCabinCloudSync() {
       // If we are a passenger joining an existing car, ask if any music is already playing in the cabin
       setTimeout(() => {
         publishCabinMessage('REQUEST_SYNC', {});
-      }, 600);
+      }, 500);
+      setTimeout(() => {
+        if (!carMusic.isPlaying && (!carMusic.videoId || carMusic.videoId === STANDBY_VIDEO_ID)) {
+          publishCabinMessage('REQUEST_SYNC', {});
+        }
+      }, 1500);
     });
 
     cabinMqttClient.on('message', (msgTopic, rawMsg) => {
@@ -2234,12 +2270,19 @@ function handleCabinIncomingMessage(msg) {
       break;
 
     case 'REQUEST_SYNC':
-      // Another occupant entered the car. If we have active music, reply with current status
+      // ONLY the Host responds to sync requests! Passengers do not reply to avoid conflicting timestamps
+      if (!carMusic.isHost) break;
+
       if (carMusic.videoId && carMusic.videoId !== STANDBY_VIDEO_ID) {
+        const curSec = (ytReady && ytPlayer && typeof ytPlayer.getCurrentTime === 'function')
+          ? (ytPlayer.getCurrentTime() || 0)
+          : (carMusic.currentPosition || 0);
+
         publishCabinMessage('SYNC_STATE', {
+          targetClientId: msg.sender,
           videoId: carMusic.videoId,
           title: carMusic.title,
-          startSeconds: (ytReady && ytPlayer && ytPlayer.getCurrentTime) ? ytPlayer.getCurrentTime() : carMusic.currentPosition,
+          startSeconds: curSec,
           serverTime: Date.now(),
           isPlaying: carMusic.isPlaying,
           queue: carMusic.queue,
@@ -2250,11 +2293,82 @@ function handleCabinIncomingMessage(msg) {
       break;
 
     case 'HEARTBEAT':
-      // Disabled: Clean Event-Driven Sync allows audio to play naturally and continuously
-      // without repetitive seekTo buffering and network lag loops.
+      // Heartbeat discovery: Guarantees all cabin passengers catch the song reliably
+      if (!carMusic.isHost && msg.videoId && msg.videoId !== STANDBY_VIDEO_ID) {
+        // 1. If passenger missed PLAY_TRACK or is on a different track, sync immediately!
+        if (carMusic.videoId !== msg.videoId) {
+          syncTrackAsPassenger({
+            videoId: msg.videoId,
+            title: msg.title,
+            startSeconds: msg.position || 0,
+            serverTime: msg.serverTime || Date.now(),
+            isPlaying: Boolean(msg.isPlaying),
+            isMixtape: true
+          });
+          break;
+        }
+
+        // 2. Ensure passenger stays unpaused if host is playing
+        if (msg.isPlaying && !carMusic.isPlaying) {
+          carMusic.isPlaying = true;
+          updateStereoPlayStateUI(true);
+          if (ytReady && ytPlayer && typeof ytPlayer.playVideo === 'function') ytPlayer.playVideo();
+        } else if (!msg.isPlaying && carMusic.isPlaying) {
+          carMusic.isPlaying = false;
+          updateStereoPlayStateUI(false);
+          if (ytReady && ytPlayer && typeof ytPlayer.pauseVideo === 'function') ytPlayer.pauseVideo();
+        }
+
+        // 3. ZERO-STUTTER: Strictly NO seekTo for normal internet latency (1-5s)!
+        // Only seek if drift is massive (> 18 seconds, e.g. player was alt-tabbed or massive packet loss)
+        if (typeof msg.position === 'number') {
+          const curPos = (ytReady && ytPlayer && typeof ytPlayer.getCurrentTime === 'function')
+            ? (ytPlayer.getCurrentTime() || 0)
+            : (carMusic.currentPosition || 0);
+
+          if (Math.abs(curPos - msg.position) > 18.0) {
+            carMusic.currentPosition = msg.position;
+            if (ytReady && ytPlayer && typeof ytPlayer.seekTo === 'function') {
+              ytPlayer.seekTo(msg.position, true);
+            }
+          }
+        }
+      }
       break;
 
     case 'SYNC_STATE':
+      // 1. If targeted to a specific newcomer and it's not us, ignore!
+      if (msg.targetClientId && msg.targetClientId !== cabinClientId) break;
+
+      // 2. Active Host never syncs to another client's state response
+      if (carMusic.isHost && carMusic.isPlaying && carMusic.videoId && carMusic.videoId !== STANDBY_VIDEO_ID) break;
+
+      // 3. Existing passengers who are already playing this song: NEVER interrupt them!
+      if (carMusic.videoId === msg.videoId && carMusic.isPlaying) {
+        console.log('[CABIN SYNC] Existing passenger already playing track smoothly, skipping SYNC_STATE.');
+        break;
+      }
+
+      if (cassetteInsertTimeout) {
+        clearTimeout(cassetteInsertTimeout);
+        cassetteInsertTimeout = null;
+      }
+      if (msg.queue) {
+        carMusic.queue = msg.queue;
+        if (typeof msg.queueIndex === 'number') carMusic.queueIndex = msg.queueIndex;
+        renderQueueUI();
+        updateQueueCountUI();
+      }
+      syncTrackAsPassenger({
+        videoId: msg.videoId,
+        title: msg.title,
+        startSeconds: msg.startSeconds || 0,
+        serverTime: msg.serverTime || msg.timestamp || Date.now(),
+        isPlaying: Boolean(msg.isPlaying),
+        isMixtape: true
+      });
+      break;
+
     case 'PLAY_TRACK':
       if (cassetteInsertTimeout) {
         clearTimeout(cassetteInsertTimeout);
