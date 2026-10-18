@@ -106,17 +106,17 @@
       <div class="stereo-controls-deck">
         <!-- Transport Buttons -->
         <div class="stereo-transport-btns">
-          <button id="stereo-btn-prev" class="stereo-ctrl-btn" title="Lagu Sebelumnya">⏮</button>
-          <button id="stereo-btn-play" class="stereo-ctrl-btn btn-play-main" title="Play / Pause">⏯</button>
-          <button id="stereo-btn-stop" class="stereo-ctrl-btn" title="Stop">⏹</button>
-          <button id="stereo-btn-next" class="stereo-ctrl-btn" title="Lagu Selanjutnya">⏭</button>
+          <button id="stereo-btn-prev" class="stereo-ctrl-btn" title="Lagu Sebelumnya">|&#9664;</button>
+          <button id="stereo-btn-play" class="stereo-ctrl-btn btn-play-main" title="Play / Pause">&#9654;</button>
+          <button id="stereo-btn-stop" class="stereo-ctrl-btn" title="Stop">&#9632;</button>
+          <button id="stereo-btn-next" class="stereo-ctrl-btn" title="Lagu Selanjutnya">&#9654;|</button>
         </div>
 
         <!-- Volume Knob / Slider -->
         <div class="stereo-volume-wrap">
           <button id="stereo-btn-mute" class="stereo-mute-btn" title="Mute Audio">VOL</button>
-          <input type="range" id="stereo-vol-slider" class="stereo-vol-range" min="0" max="100" value="75" title="Volume Suara">
-          <span id="stereo-vol-text" class="stereo-vol-label">75%</span>
+          <input type="range" id="stereo-vol-slider" class="stereo-vol-range" min="0" max="100" value="20" title="Volume Suara">
+          <span id="stereo-vol-text" class="stereo-vol-label">20%</span>
         </div>
 
         <!-- Mini Video Preview Toggle -->
@@ -165,6 +165,7 @@
       <!-- Video Slot Container (Audio-only in hidden-preview, toggled on by Video button) -->
       <div id="stereo-video-container" class="stereo-video-box hidden-preview">
         <div id="yt-player-slot"></div>
+        <div class="stereo-video-overlay"></div>
       </div>
     </div>
 
@@ -509,6 +510,6 @@
   <!-- YouTube IFrame API & Cloud Cabin Sync Library -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.3.5/mqtt.min.js"></script>
   <script src="https://www.youtube.com/iframe_api"></script>
-  <script src="script.js?v=3.5"></script>
+  <script src="script.js?v=3.7"></script>
 </body>
 </html>

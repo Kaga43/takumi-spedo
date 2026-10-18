@@ -504,16 +504,9 @@ function renderDashboard() {
     el.gearBox.className = 'font-digital gear-box';
   }
 
-  // 4. 24-Segment RPM Bar with Peak Hold
+  // 4. 24-Segment RPM Bar - Instant & Snappy Real-Time Drop
   el.rpmNumeric.textContent = currentRPM.toString().padStart(4, '0');
   const activeRpmCount = Math.round(rpmRatio * RPM_SEGMENTS);
-
-  if (activeRpmCount >= telemetry.peakRpmSegment) {
-    telemetry.peakRpmSegment = activeRpmCount;
-  } else if (telemetry.peakRpmSegment > 0) {
-    telemetry.peakRpmSegment = Math.max(activeRpmCount, telemetry.peakRpmSegment - 0.15);
-  }
-  const peakIndex = Math.min(RPM_SEGMENTS - 1, Math.floor(telemetry.peakRpmSegment));
 
   const rpmNodes = el.rpmBar.children;
   for (let i = 0; i < RPM_SEGMENTS; i++) {
@@ -523,8 +516,6 @@ function renderDashboard() {
       if (i >= 18) seg.classList.add('active-red');
       else if (i >= 11) seg.classList.add('active-amber');
       else seg.classList.add('active-green');
-    } else if (i === peakIndex && peakIndex > 2) {
-      seg.classList.add('peak-hold');
     }
   }
 
@@ -681,13 +672,26 @@ setInterval(() => {
 
 const STANDBY_VIDEO_ID = 'atuFSv2bLa8'; // Standby priming track so YT iframe and audio context initialize immediately
 
+const DEFAULT_STEREO_VOLUME = 20;
+
+function getSavedStereoVolume() {
+  try {
+    const saved = localStorage.getItem('ae86_stereo_vol');
+    if (saved !== null && saved !== '') {
+      const parsed = parseInt(saved, 10);
+      if (!isNaN(parsed) && parsed >= 0 && parsed <= 100) return parsed;
+    }
+  } catch (_) {}
+  return DEFAULT_STEREO_VOLUME;
+}
+
 const carMusic = {
   videoId: '',
   title: 'TAPE - NO CASSETTE / STANDBY',
   isPlaying: false,
   startSeconds: 0,
   serverTime: 0,
-  volume: 75,
+  volume: getSavedStereoVolume(),
   isMuted: false,
   isHost: true,
   currentDuration: 0,
@@ -1573,8 +1577,6 @@ function togglePlayPause() {
         playNextInQueue();
         return;
       }
-      const searchInput = document.getElementById('stereo-search-input');
-      if (searchInput) searchInput.focus();
       return;
     }
     carMusic.isPlaying = true;
@@ -1662,6 +1664,9 @@ function stopMusic() {
 function setMusicVolume(val) {
   const vol = Math.max(0, Math.min(100, Number(val) || 0));
   carMusic.volume = vol;
+  try {
+    localStorage.setItem('ae86_stereo_vol', vol.toString());
+  } catch (_) {}
   if (ytReady && ytPlayer && ytPlayer.setVolume) {
     ytPlayer.setVolume(vol);
   }
@@ -1707,8 +1712,8 @@ function updateStereoPlayStateUI(isPlaying) {
     cassetteViewport.classList.toggle('cassette-empty', !hasCassette);
   }
 
-  if (statusEl) statusEl.textContent = isPlaying ? '▶ PLAYING' : (hasCassette ? '⏸ PAUSED' : '⏹ STANDBY');
-  if (btnPlay) btnPlay.textContent = isPlaying ? '⏸' : '▶';
+  if (statusEl) statusEl.textContent = isPlaying ? '▶ PLAYING' : (hasCassette ? '❚❚ PAUSED' : '■ STANDBY');
+  if (btnPlay) btnPlay.textContent = isPlaying ? '❚❚' : '▶';
 
   if (spoolLeft) spoolLeft.classList.toggle('spinning', isPlaying && hasCassette);
   if (spoolRight) spoolRight.classList.toggle('spinning', isPlaying && hasCassette);
@@ -1791,6 +1796,12 @@ function openStereoDeck(autoCloseSeconds = 0) {
   if (tofuBtn) tofuBtn.classList.add('stereo-open');
   updateStereoPosition();
   startStereoAnimLoop();
+
+  const searchInput = document.getElementById('stereo-search-input');
+  if (searchInput && document.activeElement === searchInput) {
+    searchInput.blur();
+    releaseNuiFocus(true);
+  }
   console.log('[CAR STEREO] Opened Fujiwara Stereo Deck.');
 
   if (autoCloseSeconds > 0) {
@@ -2339,22 +2350,42 @@ function initStereoDeck() {
     });
 
     searchInput.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+
       if (e.key === 'Enter' || e.keyCode === 13 || e.which === 13) {
         e.preventDefault();
-        e.stopPropagation();
         searchInput.blur();
         releaseNuiFocus(true);
         handlePerformSearch();
         return;
       }
+
       if (e.key === 'Escape' || e.keyCode === 27) {
         e.preventDefault();
-        e.stopPropagation();
         searchInput.blur();
         releaseNuiFocus(true);
         return;
       }
+
+      // Intercept and prevent T and all printable characters from triggering FiveM chatbox or vehicle controls
+      if (!e.ctrlKey && !e.altKey && !e.metaKey && e.key && e.key.length === 1) {
+        e.preventDefault();
+        const start = searchInput.selectionStart || 0;
+        const end = searchInput.selectionEnd || 0;
+        const val = searchInput.value;
+        searchInput.value = val.substring(0, start) + e.key + val.substring(end);
+        searchInput.selectionStart = searchInput.selectionEnd = start + 1;
+        searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+        return;
+      }
+    });
+
+    searchInput.addEventListener('keypress', (e) => e.stopPropagation());
+    searchInput.addEventListener('keyup', (e) => {
       e.stopPropagation();
+      if (e.key && e.key.toLowerCase() === 't') {
+        e.preventDefault();
+      }
     });
 
     searchInput.addEventListener('mousedown', (e) => e.stopPropagation());
@@ -2398,7 +2429,11 @@ function initStereoDeck() {
     });
   }
 
+  const initialVol = getSavedStereoVolume();
+  setMusicVolume(initialVol);
+
   if (volSlider) {
+    volSlider.value = initialVol;
     volSlider.addEventListener('input', (e) => {
       setMusicVolume(e.target.value);
     });
@@ -2760,11 +2795,11 @@ window.addEventListener('touchend', handleGlobalRelease);
 // When typing in search input, stereo deck is open, or interacting with grips,
 // suppress 'T' completely so FiveM chatbox NEVER opens!
 window.addEventListener('keydown', (e) => {
-  // 1. If typing in input or textarea, ALWAYS stop propagation so FiveM chat NEVER catches 'T'
+  // 1. If typing in input or textarea, ALWAYS intercept and prevent 't' / 'T' leak to FiveM chat
   if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
+    e.stopPropagation();
     if (e.key === 'Enter' || e.keyCode === 13) {
       e.preventDefault();
-      e.stopPropagation();
       e.target.blur();
       releaseNuiFocus(true);
       if (typeof handlePerformSearchGlobal === 'function') {
@@ -2774,12 +2809,22 @@ window.addEventListener('keydown', (e) => {
     }
     if (e.key === 'Escape' || e.keyCode === 27) {
       e.preventDefault();
-      e.stopPropagation();
       e.target.blur();
       releaseNuiFocus(true);
       return;
     }
-    e.stopPropagation();
+    // Prevent default on printable keys so CEF never forwards WM_KEYDOWN to FiveM / GTA V!
+    if (!e.ctrlKey && !e.altKey && !e.metaKey && e.key && e.key.length === 1) {
+      e.preventDefault();
+      const input = e.target;
+      const start = input.selectionStart || 0;
+      const end = input.selectionEnd || 0;
+      const val = input.value;
+      input.value = val.substring(0, start) + e.key + val.substring(end);
+      input.selectionStart = input.selectionEnd = start + 1;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return;
+    }
     return;
   }
 
