@@ -27,7 +27,6 @@ const telemetry = {
   leftIndicator: false,
   rightIndicator: false,
   seatbelts: true,
-  locked: true, // true: Locked (Amber), false: Unlocked
   odometer: 86240.5, // miles or km
   soundEnabled: true, // Default ON for local testing
 };
@@ -118,13 +117,23 @@ function playSeatbeltReminderChime() {
 // 12 GLOBAL TELEMETRY API FUNCTIONS (JG:VRP TEMPLATE SPECIFICATION)
 // ---------------------------------------------------------------------------
 
+let renderPending = false;
+function scheduleDashboardRender() {
+  if (renderPending) return;
+  renderPending = true;
+  window.requestAnimationFrame(() => {
+    renderPending = false;
+    renderDashboard();
+  });
+}
+
 /**
  * Updates engine status
  * @param {boolean} state - true: On, false: Off
  */
 function setEngine(state) {
   telemetry.engine = Boolean(state);
-  renderDashboard();
+  scheduleDashboardRender();
 }
 
 /**
@@ -144,7 +153,7 @@ function setSpeed(speed) {
       telemetry.calculatedSpeed = Math.round(telemetry.speedMs * 3.6);
       break;
   }
-  renderDashboard();
+  scheduleDashboardRender();
 }
 
 /**
@@ -153,7 +162,7 @@ function setSpeed(speed) {
  */
 function setRPM(rpm) {
   telemetry.rpm = Math.min(Math.max(Number(rpm) || 0, 0), 1);
-  renderDashboard();
+  scheduleDashboardRender();
 }
 
 /**
@@ -162,7 +171,7 @@ function setRPM(rpm) {
  */
 function setFuel(fuel) {
   telemetry.fuel = Math.min(Math.max(Number(fuel) || 0, 0), 1);
-  renderDashboard();
+  scheduleDashboardRender();
 }
 
 /**
@@ -171,7 +180,7 @@ function setFuel(fuel) {
  */
 function setHealth(health) {
   telemetry.health = Math.min(Math.max(Number(health) || 0, 0), 1);
-  renderDashboard();
+  scheduleDashboardRender();
 }
 
 /**
@@ -180,7 +189,7 @@ function setHealth(health) {
  */
 function setGear(gear) {
   telemetry.gear = gear;
-  renderDashboard();
+  scheduleDashboardRender();
 }
 
 /**
@@ -189,7 +198,7 @@ function setGear(gear) {
  */
 function setHeadlights(state) {
   telemetry.headlights = Number(state) || 0;
-  renderDashboard();
+  scheduleDashboardRender();
 }
 
 /**
@@ -198,7 +207,7 @@ function setHeadlights(state) {
  */
 function setLeftIndicator(state) {
   telemetry.leftIndicator = Boolean(state);
-  renderDashboard();
+  scheduleDashboardRender();
 }
 
 /**
@@ -207,7 +216,7 @@ function setLeftIndicator(state) {
  */
 function setRightIndicator(state) {
   telemetry.rightIndicator = Boolean(state);
-  renderDashboard();
+  scheduleDashboardRender();
 }
 
 /**
@@ -216,7 +225,7 @@ function setRightIndicator(state) {
  */
 function setSeatbelts(state) {
   telemetry.seatbelts = Boolean(state);
-  renderDashboard();
+  scheduleDashboardRender();
 }
 
 /**
@@ -234,23 +243,28 @@ function setSpeedMode(mode) {
  */
 function setOdometer(distance) {
   telemetry.odometer = Number(distance) || 0;
-  renderDashboard();
+  scheduleDashboardRender();
 }
 
 /**
- * Updates vehicle door lock status (Custom extension for FiveM car lock scripts)
- * @param {boolean} state - true: locked, false: unlocked
+ * Calculates ideal cluster scale based on current screen/game viewport resolution
+ * Standard 1920x1080 = 1.0x; Laptop 1366x768 = ~0.71x; 720p = ~0.66x
  */
-function setLocked(state) {
-  telemetry.locked = Boolean(state);
-  renderDashboard();
+function getIdealClusterScale() {
+  const screenW = window.innerWidth || 1920;
+  const screenH = window.innerHeight || 1080;
+  const ratioW = screenW / 1920;
+  const ratioH = screenH / 1080;
+  const baseRatio = Math.min(ratioW, ratioH);
+  return Math.max(0.55, Math.min(1.15, Number(baseRatio.toFixed(2))));
 }
 
 /**
- * Adjusts the global size/scale of the cluster (e.g. 0.7 to 1.5)
+ * Adjusts the global size/scale of the cluster (e.g. 0.4 to 2.0)
  * @param {number} scale
+ * @param {boolean} saveToStorage - whether to persist manual player scale preference
  */
-function setClusterScale(scale) {
+function setClusterScale(scale, saveToStorage = true) {
   const clamped = Math.max(0.4, Math.min(2.0, Number(scale) || 1.0));
   telemetry.scale = clamped;
   const cluster = document.getElementById('speedo-cluster');
@@ -259,14 +273,38 @@ function setClusterScale(scale) {
     cluster.style.transformOrigin = 'bottom right';
   }
   document.documentElement.style.setProperty('--cluster-scale', clamped.toString());
-  try {
-    localStorage.setItem('ae86_cluster_scale', clamped.toString());
-  } catch (e) {}
+  if (saveToStorage) {
+    try {
+      localStorage.setItem('ae86_cluster_scale', clamped.toString());
+    } catch (e) {}
+  }
 
   const simScale = document.getElementById('sim-scale');
   const valScale = document.getElementById('val-scale');
   if (simScale) simScale.value = clamped;
   if (valScale) valScale.textContent = `${Math.round(clamped * 100)}% (${clamped.toFixed(2)}x)`;
+}
+
+/**
+ * Clamps cluster position to ensure it remains reachable inside current screen viewport
+ */
+function clampClusterPosition() {
+  const cluster = document.getElementById('speedo-cluster');
+  if (!cluster) return;
+  const computed = window.getComputedStyle(cluster);
+  const currentRight = parseFloat(cluster.style.right || computed.right) || 24;
+  const currentBottom = parseFloat(cluster.style.bottom || computed.bottom) || 24;
+
+  const minRight = 10;
+  const maxRight = Math.max(10, window.innerWidth - 120);
+  const minBottom = 10;
+  const maxBottom = Math.max(10, window.innerHeight - 80);
+
+  const clampedRight = Math.max(minRight, Math.min(maxRight, currentRight));
+  const clampedBottom = Math.max(minBottom, Math.min(maxBottom, currentBottom));
+
+  cluster.style.right = `${clampedRight}px`;
+  cluster.style.bottom = `${clampedBottom}px`;
 }
 
 // Expose all functions to global window for JG:VRP game client & custom script calls
@@ -280,7 +318,7 @@ window.setHeadlights = setHeadlights;
 window.setLeftIndicator = setLeftIndicator;
 window.setRightIndicator = setRightIndicator;
 window.setSeatbelts = setSeatbelts;
-window.setLocked = setLocked;
+window.setLocked = () => {}; // Harmless no-op for backward compatibility
 window.setSpeedMode = setSpeedMode;
 window.setOdometer = setOdometer;
 window.setClusterScale = setClusterScale;
@@ -347,9 +385,6 @@ function initDom() {
     svgLightLow: document.getElementById('svg-light-low'),
     svgLightHigh: document.getElementById('svg-light-high'),
     indSeatbelt: document.getElementById('ind-seatbelt'),
-    indLock: document.getElementById('ind-lock'),
-    svgLockClosed: document.getElementById('svg-lock-closed'),
-    svgLockOpen: document.getElementById('svg-lock-open'),
     indEngine: document.getElementById('ind-engine'),
 
     // Tacho elements
@@ -539,17 +574,6 @@ function renderDashboard() {
     setIndicatorState(el.indLights, false, '');
   }
 
-  // Door Lock indicator (true: locked padlock with amber glow; false: open padlock dimmed)
-  if (telemetry.locked) {
-    if (el.svgLockClosed) el.svgLockClosed.style.display = 'block';
-    if (el.svgLockOpen) el.svgLockOpen.style.display = 'none';
-    setIndicatorState(el.indLock, true, 'active-amber');
-  } else {
-    if (el.svgLockClosed) el.svgLockClosed.style.display = 'none';
-    if (el.svgLockOpen) el.svgLockOpen.style.display = 'block';
-    setIndicatorState(el.indLock, false, '');
-  }
-
   const isEngineWarning = !telemetry.engine || healthPctVal < 40;
   setIndicatorState(el.indEngine, isEngineWarning, 'active-amber blink-signal');
 
@@ -604,8 +628,8 @@ function renderDashboard() {
     el.charStateBadge.style.color = '#ff1e42';
     el.dialogueJp.textContent = '「エンジンが…！？」';
     el.dialogueEn.textContent = 'ENGINE CRITICAL ALERT!!';
-  } else if (rpmRatio >= REDLINE_RATIO || spd >= 110) {
-    // STATE 2: FUJIWARA ZONE FOCUS
+  } else if ((telemetry.speedMode === 1 ? spd >= 100 : (telemetry.speedMode === 2 ? spd >= 86 : spd >= 160)) || (telemetry.speedMs >= 44.5)) {
+    // STATE 2: TAKUMI HIGH-SPEED SERIOUS FOCUS (>100 MPH / ~160 KM/H)
     if (el.takumiChill) el.takumiChill.style.display = 'none';
     if (el.takumiSleep) el.takumiSleep.style.display = 'none';
     if (el.takumiPanic) el.takumiPanic.style.display = 'none';
@@ -613,10 +637,10 @@ function renderDashboard() {
     el.takumiAura.setAttribute('opacity', '1');
     el.charFrame.className = 'char-frame manga-halftone-intense';
     el.charSpeedlines.style.opacity = '0.9';
-    el.charStateBadge.textContent = 'ZONE';
+    el.charStateBadge.textContent = 'FOCUS';
     el.charStateBadge.style.color = '#ff9d00';
-    el.dialogueJp.textContent = '「11,000回転キッチリ回せ！」';
-    el.dialogueEn.textContent = 'KANSEI DORIFTO // ZONE';
+    el.dialogueJp.textContent = '「集中しろ…ここからが本番だ」';
+    el.dialogueEn.textContent = 'HIGH SPEED // FULL CONCENTRATION';
   } else {
     // STATE 1: CHILL TOFU DELIVERY CRUISE
     if (el.takumiSleep) el.takumiSleep.style.display = 'none';
@@ -673,12 +697,17 @@ const carMusic = {
   isOpen: false,
   queue: [],
   queueIndex: -1,
-  isQueueOpen: false
+  isQueueOpen: false,
+  isGuestTrack: false,
+  interruptedQueueIndex: -1
 };
 
 let ytPlayer = null;
 let ytReady = false;
 let stereoAnimInterval = null;
+let handlePerformSearchGlobal = null;
+let cassetteInsertTimeout = null;
+let autoPeekTimeout = null;
 
 // Load YouTube IFrame API
 function initYouTubeApi() {
@@ -722,14 +751,41 @@ function handlePlayerStateChange(e) {
   } else if (e.data === 2) { // PAUSED
     carMusic.isPlaying = false;
     updateStereoPlayStateUI(false);
-  } else if (e.data === 0) { // ENDED -> AUTO PLAY NEXT FROM TRACK LIST
+  } else if (e.data === 0) { // ENDED -> AUTO PLAY NEXT FROM TRACK LIST OR RESUME QUEUE
     carMusic.isPlaying = false;
     updateStereoPlayStateUI(false);
+
+    // 1. Smart Queue Memory: If a guest track finished, resume the interrupted queue track!
+    if (carMusic.isGuestTrack && carMusic.queue.length > 0 && carMusic.interruptedQueueIndex >= 0 && carMusic.interruptedQueueIndex < carMusic.queue.length) {
+      console.log(`[CAR STEREO] Guest track finished. Returning to queued track #${carMusic.interruptedQueueIndex + 1}`);
+      const returnIdx = carMusic.interruptedQueueIndex;
+      carMusic.isGuestTrack = false;
+      carMusic.interruptedQueueIndex = -1;
+      playQueueIndex(returnIdx);
+      return;
+    }
+
+    // 2. Regular queue progression
     if (carMusic.queue.length > 0 && carMusic.queueIndex + 1 < carMusic.queue.length) {
       playQueueIndex(carMusic.queueIndex + 1);
     } else {
-      console.log('[CAR STEREO] Reached end of track list.');
-      stopMusic();
+      console.log('[CAR STEREO] Reached end of track. Ready to replay.');
+      carMusic.startSeconds = 0;
+      carMusic.currentPosition = 0;
+      if (ytReady && ytPlayer) {
+        try {
+          if (typeof ytPlayer.pauseVideo === 'function') ytPlayer.pauseVideo();
+          if (typeof ytPlayer.seekTo === 'function') ytPlayer.seekTo(0, true);
+        } catch (err) {}
+      }
+      const fillEl = document.getElementById('stereo-progress-fill');
+      const handleEl = document.getElementById('stereo-progress-handle');
+      if (fillEl) fillEl.style.width = '0%';
+      if (handleEl) handleEl.style.left = '0%';
+      const curTimeEl = document.getElementById('stereo-current-time');
+      if (curTimeEl) curTimeEl.textContent = '00:00';
+      const vfdTimeEl = document.getElementById('stereo-time-display');
+      if (vfdTimeEl) vfdTimeEl.textContent = `00:00 / ${formatTime(carMusic.currentDuration)}`;
     }
   }
 }
@@ -770,7 +826,11 @@ function ensureYouTubePlayer(callback) {
       videoId: carMusic.videoId || STANDBY_VIDEO_ID,
       playerVars: {
         autoplay: carMusic.isPlaying ? 1 : 0,
-        controls: 1,
+        controls: 0,
+        disablekb: 1,
+        fs: 0,
+        iv_load_policy: 3,
+        modestbranding: 1,
         rel: 0,
         playsinline: 1,
         enablejsapi: 1
@@ -939,7 +999,20 @@ function renderSearchResultsUI(results, query) {
     btnPlay.addEventListener('click', (e) => {
       e.stopPropagation();
       panel.style.display = 'none';
-      carMusic.queueIndex = -1; // Reset queue pointer when playing direct external track
+
+      // Smart Queue Memory: Remember current queue position as interrupted to return later!
+      if (carMusic.queue.length > 0) {
+        if (carMusic.queueIndex >= 0) {
+          carMusic.interruptedQueueIndex = carMusic.queueIndex;
+        } else if (carMusic.interruptedQueueIndex < 0) {
+          carMusic.interruptedQueueIndex = 0;
+        }
+        carMusic.isGuestTrack = true;
+      }
+      carMusic.queueIndex = -1; // Unmark queue active pointer while guest track plays
+      renderQueueUI();
+      updateQueueCountUI();
+
       if (item.videoId) {
         playTrackAsDriver(item.videoId, item.title, 0, false);
       } else if (item.searchQuery) {
@@ -966,47 +1039,33 @@ function renderSearchResultsUI(results, query) {
 
 /**
  * Driver action: Play YouTube track via search query or direct link
+ * Resolves to a concrete Video ID before playing to guarantee 100% sync across all passengers!
  */
-function playSearchAsDriver(query, isMixtape = false) {
+async function playSearchAsDriver(query, isMixtape = false) {
   if (!query || !query.trim()) return;
   const q = query.trim();
-  const videoId = parseYouTubeId(q);
+  const directId = parseYouTubeId(q);
 
-  if (videoId) {
-    playTrackAsDriver(videoId, `Track (${videoId})`, 0, isMixtape);
-  } else {
-    carMusic.title = `SEEK: ${q}`;
-    carMusic.videoId = '';
-    carMusic.startSeconds = 0;
-    carMusic.serverTime = Date.now();
-    carMusic.isPlaying = true;
-    carMusic.isHost = true;
-
-    updateTrackTitleUI();
-    updateStereoPlayStateUI(true);
-
-    if (ytReady && ytPlayer && ytPlayer.loadPlaylist) {
-      try {
-        if (typeof ytPlayer.unMute === 'function') ytPlayer.unMute();
-        if (typeof ytPlayer.setVolume === 'function') ytPlayer.setVolume(carMusic.volume);
-        ytPlayer.loadPlaylist({
-          listType: 'search',
-          list: q,
-          index: 0,
-          startSeconds: 0
-        });
-      } catch (err) {
-        console.warn('[CAR STEREO] Search load failed:', err);
-      }
-    }
-
-    broadcastMusicSync('playSearch', {
-      searchQuery: q,
-      title: `SEEK: ${q}`,
-      serverTime: carMusic.serverTime,
-      isPlaying: true
-    });
+  if (directId) {
+    playTrackAsDriver(directId, `Track (${directId})`, 0, isMixtape);
+    return;
   }
+
+  carMusic.title = `SEEK: "${q}"...`;
+  updateTrackTitleUI();
+
+  try {
+    const results = await fetchYouTubeSearchResults(q);
+    if (results && results.length > 0 && results[0].videoId) {
+      playTrackAsDriver(results[0].videoId, results[0].title, 0, isMixtape);
+      return;
+    }
+  } catch (err) {
+    console.warn('[CAR STEREO] Search resolve failed:', err);
+  }
+
+  // Fallback to iconic Eurobeat if network search failed
+  playTrackAsDriver('jfKfPfyJRdk', 'Initial D - Running in the 90s', 0, isMixtape);
 }
 
 /**
@@ -1044,6 +1103,8 @@ function addToQueue(queryOrId, explicitTitle) {
 function playQueueIndex(index) {
   if (index < 0 || index >= carMusic.queue.length) return;
   carMusic.queueIndex = index;
+  carMusic.isGuestTrack = false;
+  carMusic.interruptedQueueIndex = -1;
   const target = carMusic.queue[index];
 
   renderQueueUI();
@@ -1060,15 +1121,14 @@ function playQueueIndex(index) {
 
 function playNextInQueue() {
   if (carMusic.queue.length === 0) {
-    console.log('[CAR STEREO] Track list is empty.');
+    seekTrackAsDriver(0);
     return;
   }
   const nextIdx = carMusic.queueIndex + 1;
   if (nextIdx < carMusic.queue.length) {
     playQueueIndex(nextIdx);
   } else {
-    console.log('[CAR STEREO] Reached end of track list.');
-    stopMusic();
+    seekTrackAsDriver(0);
   }
 }
 
@@ -1123,16 +1183,19 @@ function renderQueueUI() {
   carMusic.queue.forEach((track, idx) => {
     const isActive = (idx === carMusic.queueIndex);
     const isPassed = (carMusic.queueIndex >= 0 && idx < carMusic.queueIndex);
+    const isHold = Boolean(carMusic.isGuestTrack && idx === carMusic.interruptedQueueIndex);
 
     let statusBadge = '';
     if (isActive) {
       statusBadge = '<span class="track-tag-badge playing">PLAYING</span>';
+    } else if (isHold) {
+      statusBadge = '<span class="track-tag-badge on-hold" title="Antrean dijeda sementara untuk lagu tamu">ON HOLD</span>';
     } else if (isPassed) {
       statusBadge = '<span class="track-tag-badge passed">PLAYED</span>';
     }
 
     const itemEl = document.createElement('div');
-    itemEl.className = `queue-item ${isActive ? 'active-track' : ''} ${isPassed ? 'passed-track' : ''}`;
+    itemEl.className = `queue-item ${isActive ? 'active-track' : ''} ${isHold ? 'hold-track' : ''} ${isPassed ? 'passed-track' : ''}`;
     itemEl.innerHTML = `
       <div class="queue-item-left">
         <span class="queue-item-num">#${idx + 1}</span>
@@ -1140,7 +1203,7 @@ function renderQueueUI() {
         ${statusBadge}
       </div>
       <div class="queue-item-actions">
-        <button class="queue-item-btn btn-play-item" title="${isActive ? 'Sedang Diputar' : 'Putar Track Ini'}" data-idx="${idx}">▶</button>
+        <button class="queue-item-btn btn-play-item" title="${isActive ? 'Sedang Diputar' : (isHold ? 'Lanjutkan Antrean Ini' : 'Putar Track Ini')}" data-idx="${idx}">▶</button>
         <button class="queue-item-btn btn-del-item" title="Hapus dari track list" data-idx="${idx}">✕</button>
       </div>
     `;
@@ -1170,10 +1233,18 @@ function updateQueueCountUI() {
 function toggleQueuePanel() {
   const panel = document.getElementById('stereo-queue-panel');
   const btnToggle = document.getElementById('stereo-btn-toggle-queue');
+  const resultsPanel = document.getElementById('stereo-search-results');
   if (!panel) return;
   carMusic.isQueueOpen = !carMusic.isQueueOpen;
   panel.style.display = carMusic.isQueueOpen ? 'block' : 'none';
   if (btnToggle) btnToggle.classList.toggle('active', carMusic.isQueueOpen);
+
+  // Auto-collapse search results when opening track list
+  if (carMusic.isQueueOpen && resultsPanel) {
+    resultsPanel.style.display = 'none';
+  }
+
+  renderQueueUI();
   updateStereoPosition();
 }
 
@@ -1244,74 +1315,63 @@ function triggerCassetteAnimation(onReady, isNextTrack = false, silent = false) 
   }
 }
 
-function updateRoleDisplay(isHost) {
+function updateRoleDisplay() {
   const roleEl = document.getElementById('stereo-role-badge');
-  const syncInfoEl = document.getElementById('stereo-sync-info');
-  if (roleEl) roleEl.textContent = isHost ? 'AUTO REVERSE' : 'CABIN LINK';
-  if (syncInfoEl) syncInfoEl.textContent = isHost ? 'STEREO HI-FI' : 'STEREO LINKED';
+  if (roleEl) roleEl.textContent = 'AUTO REVERSE';
 }
 
 /**
- * Driver action: Play track and broadcast to vehicle passengers
+ * Driver / DJ action: Play track and broadcast to vehicle cabin
  * @param {string} videoId 
  * @param {string} title 
  * @param {number} startSeconds 
  * @param {boolean} isMixtape - If true, track transitions inside existing mixtape without cassette eject/insert sound
  */
 function playTrackAsDriver(videoId, title, startSeconds = 0, isMixtape = false) {
+  const isBayEmpty = !carMusic.videoId || carMusic.videoId === STANDBY_VIDEO_ID;
   const isNextTrack = Boolean(carMusic.videoId && carMusic.videoId !== videoId);
-  const isSilent = Boolean(isMixtape);
+  const needsInsertSfx = (isBayEmpty || !isMixtape) && startSeconds <= 1.0;
 
-  triggerCassetteAnimation(() => {
+  if (cassetteInsertTimeout) {
+    clearTimeout(cassetteInsertTimeout);
+    cassetteInsertTimeout = null;
+  }
+
+  // Set active Host/DJ state
+  carMusic.isHost = true;
+  updateRoleDisplay();
+
+  // Option C: Auto-open deck for 5 seconds so player sees the song & can adjust volume
+  if (!carMusic.isOpen) {
+    openStereoDeck(5);
+  }
+
+  const startActualPlay = () => {
     carMusic.videoId = videoId;
     carMusic.title = title || 'Audio Track';
     carMusic.startSeconds = startSeconds;
-    carMusic.serverTime = Date.now() + (isMixtape ? 0 : 1500);
+    carMusic.serverTime = Date.now();
     carMusic.isPlaying = true;
-    carMusic.isHost = true;
 
     updateStereoPlayStateUI(true);
     updateTrackTitleUI();
-    updateRoleDisplay(true);
 
     const doPlay = (p) => {
       try {
         if (typeof p.unMute === 'function' && !carMusic.isMuted) p.unMute();
         if (typeof p.setVolume === 'function') p.setVolume(carMusic.volume);
         
-        const delayMs = isMixtape ? 0 : 1500;
-        if (delayMs > 0) {
-          // Pre-cue video so it buffers silently while cassette insertion sound finishes
-          if (typeof p.cueVideoById === 'function') {
-            p.cueVideoById({
-              videoId: videoId,
-              startSeconds: Math.floor(startSeconds)
-            });
-          }
-          setTimeout(() => {
-            if (carMusic.isPlaying && typeof p.playVideo === 'function') {
-              if (typeof p.loadVideoById === 'function') {
-                p.loadVideoById({
-                  videoId: videoId,
-                  startSeconds: Math.floor(startSeconds)
-                });
-              }
-              p.playVideo();
-            }
-          }, delayMs);
-        } else {
-          // Mixtape track transition: play immediately without delay
-          if (typeof p.loadVideoById === 'function') {
-            p.loadVideoById({
-              videoId: videoId,
-              startSeconds: Math.floor(startSeconds)
-            });
-            setTimeout(() => {
-              if (carMusic.isPlaying && typeof p.playVideo === 'function') {
-                p.playVideo();
-              }
-            }, 50);
-          }
+        if (typeof p.loadVideoById === 'function') {
+          p.loadVideoById({
+            videoId: videoId,
+            startSeconds: Math.floor(startSeconds)
+          });
+        }
+        if (typeof p.seekTo === 'function') {
+          p.seekTo(startSeconds, true);
+        }
+        if (typeof p.playVideo === 'function') {
+          p.playVideo();
         }
       } catch (err) {
         console.warn('[CAR STEREO] Play error:', err);
@@ -1332,7 +1392,44 @@ function playTrackAsDriver(videoId, title, startSeconds = 0, isMixtape = false) 
       isPlaying: true,
       isMixtape: isMixtape
     });
-  }, isNextTrack, isSilent);
+  };
+
+  if (needsInsertSfx) {
+    // 1. Pause current playback immediately so previous audio stops
+    if (ytReady && ytPlayer && typeof ytPlayer.pauseVideo === 'function') {
+      try { ytPlayer.pauseVideo(); } catch (e) {}
+    }
+    carMusic.isPlaying = false;
+    updateStereoPlayStateUI(false);
+
+    // Update track title on tape deck VFD to show mounting tape
+    if (title) {
+      carMusic.title = title;
+      updateTrackTitleUI();
+    }
+
+    // 2. Broadcast CASSETTE_INSERT to cabin peers so all passengers hear click & see animation
+    broadcastMusicSync('cassetteInsert', {
+      videoId: videoId,
+      title: title,
+      queue: carMusic.queue,
+      queueIndex: carMusic.queueIndex
+    });
+
+    // 3. Play mechanical sound and seating animation on our deck
+    triggerCassetteAnimation(null, isNextTrack, false);
+
+    // 4. Wait for tape mechanism to seat (~1100ms) before starting audio
+    cassetteInsertTimeout = setTimeout(() => {
+      cassetteInsertTimeout = null;
+      startActualPlay();
+    }, 1100);
+  } else {
+    // Seamless mixtape transition or in-flight track change: play immediately
+    triggerCassetteAnimation(() => {
+      startActualPlay();
+    }, isNextTrack, true);
+  }
 }
 
 /**
@@ -1360,7 +1457,12 @@ function syncTrackAsPassenger(data) {
 
     updateStereoPlayStateUI(carMusic.isPlaying);
     updateTrackTitleUI();
-    updateRoleDisplay(false);
+    updateRoleDisplay();
+
+    // Option C: Auto-open deck for 5 seconds so player sees the song & can adjust volume
+    if (!carMusic.isOpen && carMusic.isPlaying) {
+      openStereoDeck(5);
+    }
 
     const doSync = (p) => {
       try {
@@ -1395,21 +1497,62 @@ function syncTrackAsPassenger(data) {
 }
 
 function seekTrackAsDriver(seconds) {
-  carMusic.startSeconds = seconds;
+  const targetSec = Math.max(0, Math.min(carMusic.currentDuration || 9999, seconds));
+  carMusic.startSeconds = targetSec;
+  carMusic.currentPosition = targetSec;
   carMusic.serverTime = Date.now();
-  if (ytReady && ytPlayer && ytPlayer.seekTo) {
-    ytPlayer.seekTo(seconds, true);
+  carMusic.isPlaying = true;
+
+  // Immediate UI timeline & text update
+  const fillEl = document.getElementById('stereo-progress-fill');
+  const handleEl = document.getElementById('stereo-progress-handle');
+  const ratio = Math.max(0, Math.min(1, targetSec / (carMusic.currentDuration || 1)));
+  if (fillEl) fillEl.style.width = `${(ratio * 100).toFixed(1)}%`;
+  if (handleEl) handleEl.style.left = `${(ratio * 100).toFixed(1)}%`;
+
+  const curTimeEl = document.getElementById('stereo-current-time');
+  const vfdTimeEl = document.getElementById('stereo-time-display');
+  const curStr = formatTime(targetSec);
+  const durStr = formatTime(carMusic.currentDuration);
+  if (curTimeEl) curTimeEl.textContent = curStr;
+  if (vfdTimeEl) vfdTimeEl.textContent = `${curStr} / ${durStr}`;
+
+  updateStereoPlayStateUI(true);
+
+  if (ytReady && ytPlayer) {
+    try {
+      if (typeof ytPlayer.unMute === 'function' && !carMusic.isMuted) ytPlayer.unMute();
+      if (typeof ytPlayer.setVolume === 'function') ytPlayer.setVolume(carMusic.volume);
+      if (typeof ytPlayer.seekTo === 'function') ytPlayer.seekTo(targetSec, true);
+      if (typeof ytPlayer.playVideo === 'function') ytPlayer.playVideo();
+    } catch (err) {
+      console.warn('[CAR STEREO] Seek play error:', err);
+    }
   }
+
+  startCabinHeartbeat();
+
   broadcastMusicSync('seek', {
     videoId: carMusic.videoId,
     title: carMusic.title,
-    startSeconds: seconds,
+    startSeconds: targetSec,
     serverTime: carMusic.serverTime,
-    isPlaying: carMusic.isPlaying
+    isPlaying: true
+  });
+  broadcastMusicSync('resume', {
+    videoId: carMusic.videoId,
+    title: carMusic.title,
+    startSeconds: targetSec,
+    serverTime: carMusic.serverTime,
+    isPlaying: true
   });
 }
 
 function togglePlayPause() {
+  if (cassetteInsertTimeout) {
+    clearTimeout(cassetteInsertTimeout);
+    cassetteInsertTimeout = null;
+  }
   if (carMusic.isPlaying) {
     carMusic.isPlaying = false;
     const current = (ytReady && ytPlayer && ytPlayer.getCurrentTime) ? ytPlayer.getCurrentTime() : carMusic.currentPosition;
@@ -1436,13 +1579,51 @@ function togglePlayPause() {
     }
     carMusic.isPlaying = true;
     carMusic.serverTime = Date.now();
-    if (ytReady && ytPlayer && ytPlayer.playVideo) {
-      try {
-        if (typeof ytPlayer.unMute === 'function' && !carMusic.isMuted) ytPlayer.unMute();
-        if (typeof ytPlayer.setVolume === 'function') ytPlayer.setVolume(carMusic.volume);
-      } catch (err) {}
-      ytPlayer.playVideo();
+
+    // Check if player ended or needs rewind from 0:00
+    let isAtEnd = false;
+    try {
+      if (ytReady && ytPlayer && typeof ytPlayer.getPlayerState === 'function') {
+        const state = ytPlayer.getPlayerState();
+        isAtEnd = (state === 0 || state === -1 || state === 5);
+      }
+    } catch (err) {}
+
+    const isNearEnd = (carMusic.currentDuration > 0 && carMusic.currentPosition >= carMusic.currentDuration - 1.5);
+    const shouldRewind = isAtEnd || isNearEnd || carMusic.currentPosition <= 0.5;
+
+    if (shouldRewind) {
+      carMusic.startSeconds = 0;
+      carMusic.currentPosition = 0;
+      if (ytReady && ytPlayer) {
+        try {
+          if (typeof ytPlayer.unMute === 'function' && !carMusic.isMuted) ytPlayer.unMute();
+          if (typeof ytPlayer.setVolume === 'function') ytPlayer.setVolume(carMusic.volume);
+          if (typeof ytPlayer.loadVideoById === 'function') {
+            ytPlayer.loadVideoById({
+              videoId: carMusic.videoId,
+              startSeconds: 0
+            });
+          } else if (typeof ytPlayer.seekTo === 'function') {
+            ytPlayer.seekTo(0, true);
+          }
+          if (typeof ytPlayer.playVideo === 'function') {
+            ytPlayer.playVideo();
+          }
+        } catch (err) {
+          console.warn('[CAR STEREO] Replay error:', err);
+        }
+      }
+    } else {
+      if (ytReady && ytPlayer && ytPlayer.playVideo) {
+        try {
+          if (typeof ytPlayer.unMute === 'function' && !carMusic.isMuted) ytPlayer.unMute();
+          if (typeof ytPlayer.setVolume === 'function') ytPlayer.setVolume(carMusic.volume);
+        } catch (err) {}
+        ytPlayer.playVideo();
+      }
     }
+
     updateStereoPlayStateUI(true);
     broadcastMusicSync('resume', {
       videoId: carMusic.videoId,
@@ -1455,6 +1636,10 @@ function togglePlayPause() {
 }
 
 function stopMusic() {
+  if (cassetteInsertTimeout) {
+    clearTimeout(cassetteInsertTimeout);
+    cassetteInsertTimeout = null;
+  }
   carMusic.isPlaying = false;
   carMusic.startSeconds = 0;
   carMusic.currentPosition = 0;
@@ -1550,6 +1735,12 @@ function animateEqualizer(isActive) {
 
 function startStereoAnimLoop() {
   if (stereoAnimInterval) return;
+  const fillEl = document.getElementById('stereo-progress-fill');
+  const handleEl = document.getElementById('stereo-progress-handle');
+  const curTimeEl = document.getElementById('stereo-current-time');
+  const durTimeEl = document.getElementById('stereo-duration-time');
+  const vfdTimeEl = document.getElementById('stereo-time-display');
+
   stereoAnimInterval = setInterval(() => {
     if (!carMusic.isPlaying) {
       animateEqualizer(false);
@@ -1565,15 +1756,10 @@ function startStereoAnimLoop() {
 
     if (!carMusic.isDraggingScrubber && carMusic.currentDuration > 0) {
       const pct = Math.min(100, Math.max(0, (carMusic.currentPosition / carMusic.currentDuration) * 100));
-      const fillEl = document.getElementById('stereo-progress-fill');
-      const handleEl = document.getElementById('stereo-progress-handle');
       if (fillEl) fillEl.style.width = `${pct}%`;
       if (handleEl) handleEl.style.left = `${pct}%`;
     }
 
-    const curTimeEl = document.getElementById('stereo-current-time');
-    const durTimeEl = document.getElementById('stereo-duration-time');
-    const vfdTimeEl = document.getElementById('stereo-time-display');
     const curStr = formatTime(carMusic.currentPosition);
     const durStr = formatTime(carMusic.currentDuration);
     if (curTimeEl) curTimeEl.textContent = curStr;
@@ -1584,25 +1770,72 @@ function startStereoAnimLoop() {
   }, 200);
 }
 
-function toggleStereoDeck() {
+function openStereoDeck(autoCloseSeconds = 0) {
   const modal = document.getElementById('stereo-modal');
   const tofuBtn = document.getElementById('tofu-plate-btn');
   if (!modal) return;
 
-  carMusic.isOpen = !carMusic.isOpen;
+  if (autoPeekTimeout) {
+    clearTimeout(autoPeekTimeout);
+    autoPeekTimeout = null;
+  }
+
+  carMusic.isOpen = true;
+  modal.classList.remove('deck-closing');
+  modal.style.display = 'block';
+  modal.style.visibility = 'visible';
+  // Force browser reflow so transition plays smoothly
+  void modal.offsetWidth;
+  modal.classList.add('deck-open');
+
+  if (tofuBtn) tofuBtn.classList.add('stereo-open');
+  updateStereoPosition();
+  startStereoAnimLoop();
+  console.log('[CAR STEREO] Opened Fujiwara Stereo Deck.');
+
+  if (autoCloseSeconds > 0) {
+    autoPeekTimeout = setTimeout(() => {
+      autoPeekTimeout = null;
+      // Do not auto-close if player is actively interacting with the deck
+      const searchInput = document.getElementById('stereo-search-input');
+      const isTyping = searchInput && document.activeElement === searchInput;
+      if (!isTyping && !carMusic.isQueueOpen && !carMusic.isDraggingScrubber) {
+        closeStereoDeck();
+      }
+    }, autoCloseSeconds * 1000);
+  }
+}
+
+function closeStereoDeck() {
+  const modal = document.getElementById('stereo-modal');
+  const tofuBtn = document.getElementById('tofu-plate-btn');
+  if (autoPeekTimeout) {
+    clearTimeout(autoPeekTimeout);
+    autoPeekTimeout = null;
+  }
+  if (!modal) return;
+
+  carMusic.isOpen = false;
+  modal.classList.remove('deck-open');
+  modal.classList.add('deck-closing');
+
+  if (tofuBtn) tofuBtn.classList.remove('stereo-open');
+  releaseNuiFocus();
+  console.log('[CAR STEREO] Closed Fujiwara Stereo Deck.');
+
+  setTimeout(() => {
+    if (!carMusic.isOpen && modal) {
+      modal.style.display = 'none';
+      modal.classList.remove('deck-closing');
+    }
+  }, 220);
+}
+
+function toggleStereoDeck() {
   if (carMusic.isOpen) {
-    modal.style.display = 'block';
-    modal.style.visibility = 'visible';
-    modal.style.opacity = '1';
-    if (tofuBtn) tofuBtn.classList.add('stereo-open');
-    updateStereoPosition();
-    startStereoAnimLoop();
-    console.log('[CAR STEREO] Opened Fujiwara Stereo Deck.');
+    closeStereoDeck();
   } else {
-    modal.style.display = 'none';
-    if (tofuBtn) tofuBtn.classList.remove('stereo-open');
-    releaseNuiFocus();
-    console.log('[CAR STEREO] Closed Fujiwara Stereo Deck.');
+    openStereoDeck(0);
   }
 }
 
@@ -1648,46 +1881,36 @@ function broadcastMusicSync(action, payload) {
 
 let cabinMqttClient = null;
 const cabinClientId = 'ae86_' + Math.random().toString(36).substring(2, 9);
-let currentCabinChannel = parseInt(localStorage.getItem('ae86_cabin_channel') || '1', 10);
-if (isNaN(currentCabinChannel) || currentCabinChannel < 1 || currentCabinChannel > 9) {
-  currentCabinChannel = 1;
-}
+const CABIN_TOPIC = 'kaga43_ae86_cabin';
+let cabinHeartbeatInterval = null;
 
 function getCabinTopic() {
-  return `takumi_spedo/cabin_CH_${currentCabinChannel}`;
+  return CABIN_TOPIC;
 }
 
-function updateCabinChannelUI() {
-  const chDisplay = document.getElementById('stereo-ch-val');
-  const syncInfoEl = document.getElementById('stereo-sync-info');
-  if (chDisplay) chDisplay.textContent = `CH ${currentCabinChannel}`;
-  if (syncInfoEl) {
-    const isConn = cabinMqttClient && cabinMqttClient.connected;
-    syncInfoEl.textContent = isConn ? `CABIN CH ${currentCabinChannel}` : `CH ${currentCabinChannel} (CONNECTING)`;
-    syncInfoEl.style.color = isConn ? '#00f59b' : '#ff9d00';
-  }
+function startCabinHeartbeat() {
+  if (cabinHeartbeatInterval) return;
+  cabinHeartbeatInterval = setInterval(() => {
+    if (carMusic.isHost && carMusic.isPlaying && carMusic.videoId && carMusic.videoId !== STANDBY_VIDEO_ID) {
+      const pos = (ytReady && ytPlayer && typeof ytPlayer.getCurrentTime === 'function')
+        ? ytPlayer.getCurrentTime()
+        : (carMusic.currentPosition || 0);
+
+      publishCabinMessage('HEARTBEAT', {
+        videoId: carMusic.videoId,
+        title: carMusic.title,
+        position: pos,
+        serverTime: Date.now(),
+        isPlaying: true
+      });
+    }
+  }, 3500);
 }
 
-function setCabinChannel(num) {
-  num = Math.max(1, Math.min(9, parseInt(num, 10) || 1));
-  if (num === currentCabinChannel && cabinMqttClient && cabinMqttClient.connected) return;
-
-  const oldTopic = getCabinTopic();
-  currentCabinChannel = num;
-  try {
-    localStorage.setItem('ae86_cabin_channel', currentCabinChannel.toString());
-  } catch (e) {}
-
-  updateCabinChannelUI();
-
-  if (cabinMqttClient && cabinMqttClient.connected) {
-    try {
-      cabinMqttClient.unsubscribe(oldTopic);
-    } catch (e) {}
-    const newTopic = getCabinTopic();
-    cabinMqttClient.subscribe(newTopic, { qos: 0 });
-    console.log(`[CABIN SYNC] Switched cabin channel to: ${newTopic}`);
-    publishCabinMessage('REQUEST_SYNC', {});
+function stopCabinHeartbeat() {
+  if (cabinHeartbeatInterval) {
+    clearInterval(cabinHeartbeatInterval);
+    cabinHeartbeatInterval = null;
   }
 }
 
@@ -1711,7 +1934,6 @@ function initCabinCloudSync() {
       console.log(`[CABIN SYNC] Connected to Cloud Cabin Broker. Subscribing to: ${topic}`);
       cabinMqttClient.subscribe(topic, { qos: 0 });
       updateCabinSyncUI(true);
-      updateCabinChannelUI();
 
       // If we are a passenger joining an existing car, ask if any music is already playing in the cabin
       setTimeout(() => {
@@ -1734,12 +1956,11 @@ function initCabinCloudSync() {
     cabinMqttClient.on('error', (err) => {
       console.warn('[CABIN SYNC] Connection error:', err.message);
       updateCabinSyncUI(false);
-      updateCabinChannelUI();
     });
 
     cabinMqttClient.on('close', () => {
       updateCabinSyncUI(false);
-      updateCabinChannelUI();
+      stopCabinHeartbeat();
     });
   } catch (err) {
     console.warn('[CABIN SYNC] Init failed:', err);
@@ -1747,11 +1968,17 @@ function initCabinCloudSync() {
 }
 
 function updateCabinSyncUI(connected) {
-  const roleBadge = document.getElementById('stereo-role-badge');
-  updateCabinChannelUI();
-  if (roleBadge && connected) {
-    roleBadge.textContent = `CABIN CH-${currentCabinChannel}`;
+  const syncInfoEl = document.getElementById('stereo-sync-info');
+  if (syncInfoEl) {
+    if (connected) {
+      syncInfoEl.textContent = carMusic.isHost ? 'STEREO HI-FI' : 'STEREO LINKED';
+      syncInfoEl.style.color = '#00f59b';
+    } else {
+      syncInfoEl.textContent = 'CONNECTING...';
+      syncInfoEl.style.color = '#ff9d00';
+    }
   }
+  updateRoleDisplay(carMusic.isHost);
 }
 
 function publishCabinMessage(type, data = {}) {
@@ -1770,7 +1997,15 @@ function publishCabinMessage(type, data = {}) {
 
 function publishCabinSync(action, payload) {
   if (!cabinMqttClient || !cabinMqttClient.connected) return;
-  if (action === 'play') {
+  if (action === 'cassetteInsert') {
+    publishCabinMessage('CASSETTE_INSERT', {
+      videoId: payload.videoId,
+      title: payload.title,
+      queue: payload.queue,
+      queueIndex: payload.queueIndex
+    });
+  } else if (action === 'play') {
+    startCabinHeartbeat();
     publishCabinMessage('PLAY_TRACK', {
       videoId: payload.videoId,
       title: payload.title,
@@ -1782,10 +2017,13 @@ function publishCabinSync(action, payload) {
       queueIndex: carMusic.queueIndex
     });
   } else if (action === 'pause') {
+    stopCabinHeartbeat();
     publishCabinMessage('TOGGLE_PLAY', { isPlaying: false, currentPosition: payload.startSeconds });
   } else if (action === 'resume') {
+    startCabinHeartbeat();
     publishCabinMessage('TOGGLE_PLAY', { isPlaying: true, currentPosition: payload.startSeconds });
   } else if (action === 'stop') {
+    stopCabinHeartbeat();
     publishCabinMessage('STOP', {});
   } else if (action === 'seek') {
     publishCabinMessage('SEEK', { seconds: payload.startSeconds });
@@ -1798,6 +2036,40 @@ function handleCabinIncomingMessage(msg) {
   console.log('[CABIN SYNC] Received message from cabin peer:', msg.type);
 
   switch (msg.type) {
+    case 'CASSETTE_INSERT':
+      if (cassetteInsertTimeout) {
+        clearTimeout(cassetteInsertTimeout);
+        cassetteInsertTimeout = null;
+      }
+      if (ytReady && ytPlayer && typeof ytPlayer.pauseVideo === 'function') {
+        try { ytPlayer.pauseVideo(); } catch (e) {}
+      }
+      carMusic.isPlaying = false;
+      carMusic.isHost = false;
+      stopCabinHeartbeat();
+      updateStereoPlayStateUI(false);
+      updateRoleDisplay();
+
+      // Option C: Auto-open deck for 5 seconds so player sees mounting tape & can adjust volume
+      if (!carMusic.isOpen) {
+        openStereoDeck(5);
+      }
+
+      if (msg.title) {
+        carMusic.title = msg.title;
+        updateTrackTitleUI();
+      }
+      if (msg.queue) {
+        carMusic.queue = msg.queue;
+        if (typeof msg.queueIndex === 'number') carMusic.queueIndex = msg.queueIndex;
+        renderQueueUI();
+        updateQueueCountUI();
+      }
+
+      const isNextCassette = Boolean(carMusic.videoId && carMusic.videoId !== msg.videoId);
+      triggerCassetteAnimation(null, isNextCassette, false);
+      break;
+
     case 'REQUEST_SYNC':
       // Another occupant entered the car. If we have active music, reply with current status
       if (carMusic.videoId && carMusic.videoId !== STANDBY_VIDEO_ID) {
@@ -1814,8 +2086,52 @@ function handleCabinIncomingMessage(msg) {
       }
       break;
 
+    case 'HEARTBEAT':
+      // Periodic time-drift auto-correction from Host to Passengers
+      if (!carMusic.isHost && msg.videoId) {
+        if (carMusic.videoId !== msg.videoId) {
+          syncTrackAsPassenger({
+            videoId: msg.videoId,
+            title: msg.title,
+            startSeconds: msg.position || 0,
+            serverTime: msg.serverTime || Date.now(),
+            isPlaying: Boolean(msg.isPlaying),
+            isMixtape: true
+          });
+          break;
+        }
+
+        if (msg.isPlaying && !carMusic.isPlaying) {
+          carMusic.isPlaying = true;
+          updateStereoPlayStateUI(true);
+          if (ytReady && ytPlayer && typeof ytPlayer.playVideo === 'function') ytPlayer.playVideo();
+        } else if (!msg.isPlaying && carMusic.isPlaying) {
+          carMusic.isPlaying = false;
+          updateStereoPlayStateUI(false);
+          if (ytReady && ytPlayer && typeof ytPlayer.pauseVideo === 'function') ytPlayer.pauseVideo();
+        }
+
+        if (typeof msg.position === 'number') {
+          const curPos = (ytReady && ytPlayer && typeof ytPlayer.getCurrentTime === 'function')
+            ? (ytPlayer.getCurrentTime() || 0)
+            : (carMusic.currentPosition || 0);
+
+          if (Math.abs(curPos - msg.position) > 1.5) {
+            carMusic.currentPosition = msg.position;
+            if (ytReady && ytPlayer && typeof ytPlayer.seekTo === 'function') {
+              ytPlayer.seekTo(msg.position, true);
+            }
+          }
+        }
+      }
+      break;
+
     case 'SYNC_STATE':
     case 'PLAY_TRACK':
+      if (cassetteInsertTimeout) {
+        clearTimeout(cassetteInsertTimeout);
+        cassetteInsertTimeout = null;
+      }
       if (msg.queue) {
         carMusic.queue = msg.queue;
         if (typeof msg.queueIndex === 'number') carMusic.queueIndex = msg.queueIndex;
@@ -1828,18 +2144,37 @@ function handleCabinIncomingMessage(msg) {
         startSeconds: msg.startSeconds || 0,
         serverTime: msg.serverTime || msg.timestamp || Date.now(),
         isPlaying: Boolean(msg.isPlaying),
-        isMixtape: Boolean(msg.isMixtape)
+        isMixtape: true
       });
       break;
 
     case 'TOGGLE_PLAY':
+      if (typeof msg.currentPosition === 'number') {
+        carMusic.currentPosition = msg.currentPosition;
+        if (ytReady && ytPlayer && typeof ytPlayer.seekTo === 'function') {
+          ytPlayer.seekTo(msg.currentPosition, true);
+        }
+      }
       if (msg.isPlaying) {
-        if (!carMusic.isPlaying) {
-          togglePlayPause();
+        carMusic.isPlaying = true;
+        updateStereoPlayStateUI(true);
+        if (ytReady && ytPlayer) {
+          try {
+            if (typeof ytPlayer.unMute === 'function' && !carMusic.isMuted) ytPlayer.unMute();
+            if (typeof ytPlayer.setVolume === 'function') ytPlayer.setVolume(carMusic.volume);
+            if (typeof msg.currentPosition === 'number' && msg.currentPosition <= 0.5 && typeof ytPlayer.loadVideoById === 'function') {
+              ytPlayer.loadVideoById({ videoId: carMusic.videoId, startSeconds: 0 });
+            }
+          } catch (e) {}
+          if (typeof ytPlayer.playVideo === 'function') {
+            ytPlayer.playVideo();
+          }
         }
       } else {
-        if (carMusic.isPlaying) {
-          togglePlayPause();
+        carMusic.isPlaying = false;
+        updateStereoPlayStateUI(false);
+        if (ytReady && ytPlayer && typeof ytPlayer.pauseVideo === 'function') {
+          ytPlayer.pauseVideo();
         }
       }
       break;
@@ -1877,7 +2212,6 @@ function initStereoDeck() {
   const btnNext = document.getElementById('stereo-btn-next');
   const searchInput = document.getElementById('stereo-search-input');
   const btnSearch = document.getElementById('stereo-btn-search');
-  const btnAddQueue = document.getElementById('stereo-btn-add-queue');
   const btnClearSearch = document.getElementById('stereo-btn-clear-search');
   const btnToggleQueue = document.getElementById('stereo-btn-toggle-queue');
   const btnClearAllQueue = document.getElementById('queue-btn-clear-all');
@@ -1886,6 +2220,17 @@ function initStereoDeck() {
   const btnToggleVideo = document.getElementById('stereo-btn-toggle-video');
   const videoBox = document.getElementById('stereo-video-container');
   const progressWrap = document.getElementById('stereo-progress-wrap');
+
+  const modal = document.getElementById('stereo-modal');
+  if (modal) {
+    modal.addEventListener('pointerdown', () => {
+      // User interacted with deck: cancel auto-close so it remains open
+      if (autoPeekTimeout) {
+        clearTimeout(autoPeekTimeout);
+        autoPeekTimeout = null;
+      }
+    });
+  }
 
   // Tofu plate click & pointerdown toggles stereo deck reliably
   if (tofuBtn) {
@@ -1907,47 +2252,21 @@ function initStereoDeck() {
   if (btnClose) {
     btnClose.addEventListener('click', (e) => {
       e.stopPropagation();
-      toggleStereoDeck();
-    });
-  }
-
-  // Retro Cabin Audio Channel Selector Controls
-  const btnChPrev = document.getElementById('stereo-btn-ch-prev');
-  const btnChNext = document.getElementById('stereo-btn-ch-next');
-  if (btnChPrev) {
-    btnChPrev.addEventListener('click', (e) => {
-      e.stopPropagation();
-      setCabinChannel(currentCabinChannel > 1 ? currentCabinChannel - 1 : 9);
-    });
-  }
-  if (btnChNext) {
-    btnChNext.addEventListener('click', (e) => {
-      e.stopPropagation();
-      setCabinChannel(currentCabinChannel < 9 ? currentCabinChannel + 1 : 1);
+      closeStereoDeck();
     });
   }
 
   if (btnPlay) btnPlay.addEventListener('click', togglePlayPause);
   if (btnStop) btnStop.addEventListener('click', stopMusic);
 
-  if (btnNext) {
-    btnNext.addEventListener('click', () => {
-      if (carMusic.queue.length > 0 && carMusic.queueIndex + 1 < carMusic.queue.length) {
-        playQueueIndex(carMusic.queueIndex + 1);
-      } else {
-        seekTrackAsDriver(0);
-      }
-    });
-  }
+  if (btnNext) btnNext.addEventListener('click', playNextInQueue);
   if (btnPrev) {
     btnPrev.addEventListener('click', () => {
       const cur = carMusic.currentPosition || 0;
       if (cur > 3.0) {
         seekTrackAsDriver(0);
-      } else if (carMusic.queue.length > 0 && carMusic.queueIndex > 0) {
-        playQueueIndex(carMusic.queueIndex - 1);
       } else {
-        seekTrackAsDriver(0);
+        playPrevInQueue();
       }
     });
   }
@@ -1959,6 +2278,16 @@ function initStereoDeck() {
 
     const resultsPanel = document.getElementById('stereo-search-results');
     const resultsList = document.getElementById('stereo-results-list');
+    const queuePanel = document.getElementById('stereo-queue-panel');
+    const btnToggleQueue = document.getElementById('stereo-btn-toggle-queue');
+
+    // Auto-collapse queue panel when performing search
+    if (queuePanel && carMusic.isQueueOpen) {
+      carMusic.isQueueOpen = false;
+      queuePanel.style.display = 'none';
+      if (btnToggleQueue) btnToggleQueue.classList.remove('active');
+    }
+
     if (resultsPanel && resultsList) {
       resultsPanel.style.display = 'block';
       resultsList.innerHTML = `<div class="results-loading">[SEEK] Sedang mencari "<strong>${escapeHtml(q)}</strong>" di YouTube...</div>`;
@@ -1969,7 +2298,28 @@ function initStereoDeck() {
     renderSearchResultsUI(results, q);
   };
 
-  if (btnSearch) btnSearch.addEventListener('click', handlePerformSearch);
+  handlePerformSearchGlobal = handlePerformSearch;
+
+  const searchForm = document.getElementById('stereo-search-form');
+  if (searchForm) {
+    searchForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (searchInput) searchInput.blur();
+      releaseNuiFocus(true);
+      handlePerformSearch();
+    });
+  }
+
+  if (btnSearch) {
+    btnSearch.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (searchInput) searchInput.blur();
+      releaseNuiFocus(true);
+      handlePerformSearch();
+    });
+  }
 
   const btnCloseResults = document.getElementById('stereo-btn-close-results');
   if (btnCloseResults) {
@@ -1989,21 +2339,28 @@ function initStereoDeck() {
     });
 
     searchInput.addEventListener('keydown', (e) => {
-      e.stopPropagation();
-      if (e.key === 'Enter') {
+      if (e.key === 'Enter' || e.keyCode === 13 || e.which === 13) {
         e.preventDefault();
+        e.stopPropagation();
         searchInput.blur();
         releaseNuiFocus(true);
         handlePerformSearch();
-      } else if (e.key === 'Escape') {
+        return;
+      }
+      if (e.key === 'Escape' || e.keyCode === 27) {
         e.preventDefault();
+        e.stopPropagation();
         searchInput.blur();
         releaseNuiFocus(true);
+        return;
       }
+      e.stopPropagation();
     });
 
     searchInput.addEventListener('mousedown', (e) => e.stopPropagation());
     searchInput.addEventListener('pointerdown', (e) => e.stopPropagation());
+    searchInput.addEventListener('mouseup', (e) => e.stopPropagation());
+    searchInput.addEventListener('pointerup', (e) => e.stopPropagation());
     searchInput.addEventListener('click', (e) => {
       e.stopPropagation();
       searchInput.focus();
@@ -2011,28 +2368,10 @@ function initStereoDeck() {
 
     searchInput.addEventListener('blur', () => {
       releaseNuiFocus(true);
-      try {
-        if (typeof window.GetParentResourceName === 'function') {
-          fetch(`https://${window.GetParentResourceName()}/releaseInputFocus`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ focus: false })
-          }).catch(() => {});
-        }
-      } catch (e) {}
     });
 
-    // Request NUI keyboard focus if running inside FiveM CEF
-    searchInput.addEventListener('focus', () => {
-      try {
-        if (typeof window.GetParentResourceName === 'function') {
-          fetch(`https://${window.GetParentResourceName()}/requestInputFocus`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ focus: true })
-          }).catch(() => {});
-        }
-      } catch (e) {}
+    searchInput.addEventListener('focus', (e) => {
+      e.stopPropagation();
     });
   }
 
@@ -2088,14 +2427,80 @@ function initStereoDeck() {
   }
 
   if (progressWrap) {
-    progressWrap.addEventListener('click', (e) => {
-      if (!carMusic.currentDuration) return;
+    const fillEl = document.getElementById('stereo-progress-fill');
+    const handleEl = document.getElementById('stereo-progress-handle');
+    const curTimeEl = document.getElementById('stereo-current-time');
+    const vfdTimeEl = document.getElementById('stereo-time-display');
+
+    const updateScrubberVisual = (ratio) => {
+      const pct = Math.max(0, Math.min(100, ratio * 100));
+      if (fillEl) fillEl.style.width = `${pct}%`;
+      if (handleEl) handleEl.style.left = `${pct}%`;
+      if (carMusic.currentDuration > 0) {
+        const previewSec = ratio * carMusic.currentDuration;
+        const curStr = formatTime(previewSec);
+        const durStr = formatTime(carMusic.currentDuration);
+        if (curTimeEl) curTimeEl.textContent = curStr;
+        if (vfdTimeEl) vfdTimeEl.textContent = `${curStr} / ${durStr}`;
+      }
+    };
+
+    const getScrubberRatio = (e) => {
       const rect = progressWrap.getBoundingClientRect();
-      const clickX = (e.clientX !== undefined ? e.clientX : (e.touches && e.touches[0].clientX)) - rect.left;
-      const ratio = Math.max(0, Math.min(1, clickX / rect.width));
-      const targetSec = ratio * carMusic.currentDuration;
-      seekTrackAsDriver(targetSec);
+      if (!rect.width) return 0;
+      const clientX = (e.clientX !== undefined) ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+      return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    };
+
+    let isPointerDown = false;
+
+    progressWrap.addEventListener('pointerdown', (e) => {
+      if (!carMusic.currentDuration) return;
+      e.stopPropagation();
+      isPointerDown = true;
+      carMusic.isDraggingScrubber = true;
+      progressWrap.classList.add('dragging');
+
+      if (autoPeekTimeout) {
+        clearTimeout(autoPeekTimeout);
+        autoPeekTimeout = null;
+      }
+
+      try {
+        progressWrap.setPointerCapture(e.pointerId);
+      } catch (_) {}
+
+      const ratio = getScrubberRatio(e);
+      updateScrubberVisual(ratio);
     });
+
+    progressWrap.addEventListener('pointermove', (e) => {
+      if (!isPointerDown || !carMusic.isDraggingScrubber) return;
+      e.stopPropagation();
+      const ratio = getScrubberRatio(e);
+      updateScrubberVisual(ratio);
+    });
+
+    const handlePointerEnd = (e) => {
+      if (!isPointerDown) return;
+      e.stopPropagation();
+      isPointerDown = false;
+      carMusic.isDraggingScrubber = false;
+      progressWrap.classList.remove('dragging');
+
+      try {
+        progressWrap.releasePointerCapture(e.pointerId);
+      } catch (_) {}
+
+      if (carMusic.currentDuration > 0) {
+        const ratio = getScrubberRatio(e);
+        const targetSec = ratio * carMusic.currentDuration;
+        seekTrackAsDriver(targetSec);
+      }
+    };
+
+    progressWrap.addEventListener('pointerup', handlePointerEnd);
+    progressWrap.addEventListener('pointercancel', handlePointerEnd);
   }
 
   updateTrackTitleUI();
@@ -2124,6 +2529,8 @@ function releaseNuiFocus(force = false) {
   } catch (err) {}
 }
 
+let isInteractingGrip = false;
+
 /**
  * Interactive Corner Drag Resize Handle (Grip Triangle at Top-Left)
  */
@@ -2144,6 +2551,7 @@ function initResizeGrip() {
   const onPointerDown = (e) => {
     if (e.button !== 0) return; // Only drag on primary pointer button
     isDragging = true;
+    isInteractingGrip = true;
     startX = e.clientX ?? (e.touches && e.touches[0].clientX);
     startY = e.clientY ?? (e.touches && e.touches[0].clientY);
     startScale = telemetry.scale || 1.0;
@@ -2175,6 +2583,7 @@ function initResizeGrip() {
   const onPointerUp = (e) => {
     if (!isDragging) return;
     isDragging = false;
+    isInteractingGrip = false;
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
 
@@ -2190,10 +2599,13 @@ function initResizeGrip() {
     releaseNuiFocus(true);
   };
 
-  // Double click resets scale to default 1.0 (100%)
+  // Double click resets scale to ideal auto-scale based on current game resolution
   grip.addEventListener('dblclick', (e) => {
     e.preventDefault();
-    setClusterScale(1.0);
+    try {
+      localStorage.removeItem('ae86_cluster_scale');
+    } catch (err) {}
+    setClusterScale(getIdealClusterScale(), false);
     releaseNuiFocus(true);
   });
 
@@ -2224,6 +2636,7 @@ function initMoveGrip() {
   const onPointerDown = (e) => {
     if (e.button !== 0) return; // Only drag on primary pointer button
     isMoving = true;
+    isInteractingGrip = true;
     startX = e.clientX ?? (e.touches && e.touches[0].clientX);
     startY = e.clientY ?? (e.touches && e.touches[0].clientY);
 
@@ -2274,6 +2687,7 @@ function initMoveGrip() {
   const onPointerUp = (e) => {
     if (!isMoving) return;
     isMoving = false;
+    isInteractingGrip = false;
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
     moveGrip.style.cursor = '';
@@ -2286,7 +2700,8 @@ function initMoveGrip() {
     window.removeEventListener('pointerup', onPointerUp);
     window.removeEventListener('pointercancel', onPointerUp);
 
-    // Persist position in localStorage
+    // Clamp position within viewport boundaries and persist in localStorage
+    clampClusterPosition();
     try {
       const computed = window.getComputedStyle(cluster);
       localStorage.setItem('ae86_cluster_pos_right', computed.right);
@@ -2327,6 +2742,12 @@ window.addEventListener('pointerdown', unlockAudioOnGesture);
 
 // Global Focus Management Listeners for FiveM CEF
 const handleGlobalRelease = (e) => {
+  // If active element is an input/textarea and pointer released inside stereo deck or search form, keep selection!
+  if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {
+    if (e && e.target && typeof e.target.closest === 'function' && (e.target.closest('#stereo-modal') || e.target.closest('#stereo-search-form') || e.target.closest('.stereo-search-input-wrap'))) {
+      return;
+    }
+  }
   if (e && e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
     return;
   }
@@ -2335,21 +2756,48 @@ const handleGlobalRelease = (e) => {
 window.addEventListener('pointerup', handleGlobalRelease);
 window.addEventListener('touchend', handleGlobalRelease);
 
-// Clean Keyboard Management: Only intercept Escape to close stereo deck when open.
-// NEVER block or intercept game keys (T for chat, F5, W/A/S/D) on window!
+// Keyboard Management:
+// When typing in search input, stereo deck is open, or interacting with grips,
+// suppress 'T' completely so FiveM chatbox NEVER opens!
 window.addEventListener('keydown', (e) => {
+  // 1. If typing in input or textarea, ALWAYS stop propagation so FiveM chat NEVER catches 'T'
   if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
-    if (e.key === 'Escape') {
+    if (e.key === 'Enter' || e.keyCode === 13) {
+      e.preventDefault();
+      e.stopPropagation();
       e.target.blur();
       releaseNuiFocus(true);
+      if (typeof handlePerformSearchGlobal === 'function') {
+        handlePerformSearchGlobal();
+      }
+      return;
     }
+    if (e.key === 'Escape' || e.keyCode === 27) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.target.blur();
+      releaseNuiFocus(true);
+      return;
+    }
+    e.stopPropagation();
     return;
   }
-  if (e.key === 'Escape' && carMusic.isOpen) {
-    toggleStereoDeck();
-    releaseNuiFocus(true);
+
+  // 2. If stereo deck is open or user is currently manipulating/dragging grips:
+  // Suppress 'T' / 't' completely so the chat box NEVER opens!
+  if (carMusic.isOpen || isInteractingGrip) {
+    if (e.key && e.key.toLowerCase() === 't') {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    if (e.key === 'Escape') {
+      if (carMusic.isOpen) toggleStereoDeck();
+      releaseNuiFocus(true);
+      return;
+    }
   }
-});
+}, true);
 
 // Initialize on DOM Ready
 document.addEventListener('DOMContentLoaded', () => {
@@ -2362,15 +2810,19 @@ document.addEventListener('DOMContentLoaded', () => {
   initYouTubeApi();
   initCabinCloudSync();
 
-  // Restore saved scale from localStorage
+  // Auto-adapt scale to screen resolution unless player manually saved a preference
   try {
     const savedScale = localStorage.getItem('ae86_cluster_scale');
     if (savedScale !== null) {
-      setClusterScale(parseFloat(savedScale));
+      setClusterScale(parseFloat(savedScale), false);
+    } else {
+      setClusterScale(getIdealClusterScale(), false);
     }
-  } catch (e) {}
+  } catch (e) {
+    setClusterScale(getIdealClusterScale(), false);
+  }
 
-  // Restore saved position from localStorage
+  // Restore saved position and clamp within screen boundaries
   try {
     const cluster = document.getElementById('speedo-cluster');
     const savedRight = localStorage.getItem('ae86_cluster_pos_right');
@@ -2380,6 +2832,18 @@ document.addEventListener('DOMContentLoaded', () => {
       cluster.style.bottom = savedBottom;
     }
   } catch (e) {}
+  clampClusterPosition();
+
+  // Listen to window resize (game resolution change or windowed resize)
+  window.addEventListener('resize', () => {
+    try {
+      const savedScale = localStorage.getItem('ae86_cluster_scale');
+      if (savedScale === null) {
+        setClusterScale(getIdealClusterScale(), false);
+      }
+    } catch (e) {}
+    clampClusterPosition();
+  });
 
   // Initial Seed
   setSpeed(0);
@@ -2388,7 +2852,6 @@ document.addEventListener('DOMContentLoaded', () => {
   setHealth(1.0);
   setGear(1);
   setSeatbelts(true);
-  setLocked(true);
   setEngine(true);
   setOdometer(86240.5);
   renderDashboard();

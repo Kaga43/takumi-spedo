@@ -183,8 +183,9 @@ html, body {
   display: flex;
   flex-direction: column;
   transform-origin: bottom right;
-  transform: scale(var(--cluster-scale, 1));
-  transition: transform 0.05s linear, opacity 0.2s ease;
+  transform: scale(var(--cluster-scale, 1)) translateZ(0);
+  will-change: transform;
+  transition: opacity 0.2s ease;
 }
 
 /* Top Header Bar (Mepet menempel di atas bodi box) */
@@ -355,13 +356,14 @@ html, body {
   box-sizing: border-box;
 }
 
-/* Interactive Corner Tools (Top-Left of Cluster Body) */
+/* Interactive Corner Tools (Top-Left of Cluster Body: Size Top, Move Bottom) */
 .cluster-corner-tools {
   position: absolute;
-  top: -11px;
-  left: -10px;
-  z-index: 70;
+  top: -12px;
+  left: -12px;
+  z-index: 120; /* Ditaruh paling depan di atas tofu plate */
   display: flex;
+  flex-direction: column; /* Baris ke bawah */
   gap: 5px;
   align-items: center;
   pointer-events: auto; /* Buttons are interactive */
@@ -592,7 +594,6 @@ html, body {
   transform: skewX(-18deg);
   background: #191d26;
   opacity: 0.45;
-  transition: background-color 0.04s ease, box-shadow 0.04s ease;
 }
 
 .rpm-seg.active-green {
@@ -738,7 +739,6 @@ html, body {
   border-radius: 1px;
   background: rgba(255, 255, 255, 0.06);
   transform: skewX(-14deg);
-  transition: all 0.08s ease;
 }
 
 .sub-segment.active-amber {
@@ -1043,9 +1043,23 @@ html, body {
   pointer-events: auto !important;
   box-sizing: border-box;
   color: #ffffff;
-  animation: stereo-slide-up 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   max-height: calc(100vh - 20px);
   overflow-y: auto;
+  opacity: 0;
+  transform: translateY(14px) scale(0.98);
+  transition: opacity 0.28s cubic-bezier(0.16, 1, 0.3, 1), transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.stereo-deck.deck-open {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.stereo-deck.deck-closing {
+  opacity: 0;
+  transform: translateY(12px) scale(0.98);
+  pointer-events: none !important;
+  transition: opacity 0.22s ease-in, transform 0.22s ease-in;
 }
 
 .stereo-deck.pop-below {
@@ -1055,9 +1069,20 @@ html, body {
   border-top: 2px solid #ff9d00;
 }
 
-@keyframes stereo-slide-up {
-  from { opacity: 0; transform: translateY(8px) scale(0.99); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+/* Custom Retro 80s Scrollbar Styling for Deck */
+.stereo-deck::-webkit-scrollbar {
+  width: 5px;
+}
+.stereo-deck::-webkit-scrollbar-track {
+  background: #080a10;
+  border-radius: 4px;
+}
+.stereo-deck::-webkit-scrollbar-thumb {
+  background: #252e42;
+  border-radius: 4px;
+}
+.stereo-deck::-webkit-scrollbar-thumb:hover {
+  background: #ff9d00;
 }
 
 .stereo-header {
@@ -1117,59 +1142,6 @@ html, body {
   gap: 8px;
 }
 
-/* Retro Cabin Audio Channel / Room Selector (Zero Lua Sync) */
-.cabin-channel-wrap {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  background: #090d16;
-  border: 1px solid #1f2b42;
-  padding: 2px 6px;
-  border-radius: 4px;
-  box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.6);
-}
-
-.cabin-channel-wrap .channel-label {
-  font-size: 8px;
-  font-family: monospace;
-  font-weight: 800;
-  color: #64748b;
-  letter-spacing: 0.5px;
-}
-
-.stereo-ch-btn {
-  background: #141a27;
-  border: 1px solid #2d3b55;
-  color: #ff9d00;
-  width: 17px;
-  height: 17px;
-  border-radius: 3px;
-  font-size: 9px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  padding: 0;
-  transition: all 0.15s;
-  outline: none;
-}
-
-.stereo-ch-btn:hover {
-  background: #ff9d00;
-  color: #000000;
-  box-shadow: 0 0 6px rgba(255, 157, 0, 0.6);
-}
-
-.stereo-ch-display {
-  font-family: 'Share Tech Mono', monospace;
-  font-size: 10px;
-  font-weight: 800;
-  color: #00f59b;
-  min-width: 30px;
-  text-align: center;
-  text-shadow: 0 0 6px rgba(0, 245, 155, 0.6);
-  user-select: none;
-}
 
 .stereo-btn-queue-toggle {
   display: flex;
@@ -1552,6 +1524,13 @@ html, body {
   position: relative;
   cursor: pointer;
   border: 1px solid rgba(255, 255, 255, 0.08);
+  touch-action: none;
+  user-select: none;
+}
+
+.stereo-progress-bar-wrap.dragging .stereo-progress-fill,
+.stereo-progress-bar-wrap.dragging .stereo-progress-handle {
+  transition: none !important;
 }
 
 .stereo-progress-fill {
@@ -1685,6 +1664,8 @@ html, body {
   border-radius: 4px;
   padding: 0 8px;
   transition: border-color 0.15s, box-shadow 0.15s;
+  user-select: text !important;
+  -webkit-user-select: text !important;
 }
 
 .stereo-search-input-wrap:focus-within {
@@ -1750,25 +1731,6 @@ html, body {
   box-shadow: 0 0 8px #ff9d00;
 }
 
-.stereo-btn-add-queue {
-  background: #141a27;
-  border: 1px solid #2d3b55;
-  color: #00f59b;
-  font-weight: 800;
-  font-size: 9.5px;
-  padding: 5px 10px;
-  border-radius: 4px;
-  cursor: pointer;
-  white-space: nowrap;
-  letter-spacing: 0.4px;
-  transition: all 0.15s;
-}
-
-.stereo-btn-add-queue:hover {
-  background: rgba(0, 245, 155, 0.2);
-  border-color: #00f59b;
-  box-shadow: 0 0 8px rgba(0, 245, 155, 0.4);
-}
 
 /* Queue Panel (Antrean Lagu) */
 .stereo-queue-panel {
@@ -1961,9 +1923,24 @@ html, body {
   color: #0b0c10;
 }
 
+.track-tag-badge.on-hold {
+  background: rgba(0, 245, 155, 0.2);
+  border: 1px solid #00f59b;
+  color: #00f59b;
+}
+
 .track-tag-badge.passed {
   background: #1e2638;
   color: #64748b;
+}
+
+.queue-item.hold-track {
+  background: rgba(0, 245, 155, 0.08);
+  border-color: rgba(0, 245, 155, 0.4);
+}
+
+.queue-item.hold-track .queue-item-title {
+  color: #00f59b;
 }
 
 .queue-empty-state {
@@ -2172,4 +2149,5 @@ html, body {
   width: 100%;
   height: 100%;
   border: none;
+  pointer-events: none !important;
 }

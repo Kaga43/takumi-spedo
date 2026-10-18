@@ -32,13 +32,6 @@
           <span class="stereo-model-badge">COMPONENT DECK</span>
         </div>
         <div class="stereo-header-right">
-          <!-- Retro Cabin Audio Channel / Room Selector (Zero Lua Sync) -->
-          <div class="cabin-channel-wrap" title="Saluran Audio Kabin (Samakan nomor channel dengan penumpang di mobil Anda)">
-            <span class="channel-label">CABIN</span>
-            <button id="stereo-btn-ch-prev" class="stereo-ch-btn" title="Channel Sebelumnya">◀</button>
-            <span id="stereo-ch-val" class="stereo-ch-display">CH 1</span>
-            <button id="stereo-btn-ch-next" class="stereo-ch-btn" title="Channel Berikutnya">▶</button>
-          </div>
           <button id="stereo-btn-toggle-queue" class="stereo-btn-queue-toggle" title="Lihat/Tutup Daftar Track Kabin"><span class="btn-icon-glyph">☰</span> TRACK LIST (<span id="stereo-queue-count">0</span>)</button>
           <button id="stereo-close-btn" class="stereo-btn-close" title="Tutup Stereo Deck (Esc)">✕</button>
         </div>
@@ -130,15 +123,15 @@
         <button id="stereo-btn-toggle-video" class="stereo-btn-subtle" title="Tampilkan / Sembunyikan Layar Video YouTube"><span class="btn-icon-glyph">▣</span> MONITOR</button>
       </div>
 
-      <!-- Search Bar -->
-      <div class="stereo-search-bar">
+      <!-- Search Bar Form (Native Enter Submission Support) -->
+      <form id="stereo-search-form" class="stereo-search-bar" action="javascript:void(0);">
         <div class="stereo-search-input-wrap">
           <span class="stereo-search-icon">SEEK</span>
           <input type="text" id="stereo-search-input" class="stereo-search-input" placeholder="Pencarian Track / Artis Audio..." spellcheck="false" autocomplete="off">
-          <button id="stereo-btn-clear-search" class="stereo-btn-clear" title="Bersihkan" style="display: none;">✕</button>
+          <button type="button" id="stereo-btn-clear-search" class="stereo-btn-clear" title="Bersihkan" style="display: none;">✕</button>
         </div>
-        <button id="stereo-btn-search" class="stereo-btn-search" title="Cari Lagu di YouTube">SEEK ▶▶</button>
-      </div>
+        <button type="submit" id="stereo-btn-search" class="stereo-btn-search" title="Cari Lagu di YouTube">SEEK ▶▶</button>
+      </form>
 
       <!-- Search Results Dropdown List -->
       <div id="stereo-search-results" class="stereo-search-results" style="display: none;">
@@ -197,8 +190,11 @@
 
     <!-- Main Instrument Cluster Frame -->
     <div class="cluster-body">
-      <!-- Interactive Corner Tools: Move & Resize Grips -->
+      <!-- Interactive Corner Tools: Resize (Top) & Move (Bottom) Grips -->
       <div class="cluster-corner-tools">
+        <div id="resize-grip" class="corner-tool-btn resize-grip" title="Tahan & Tarik untuk ubah ukuran klaster (Drag to Resize) | Double-Click untuk reset 100%">
+          <svg viewBox="0 0 16 16"><polygon points="0,0 16,0 0,16"/></svg>
+        </div>
         <div id="move-grip" class="corner-tool-btn move-grip" title="Tahan & Geser untuk memindahkan posisi klaster (Drag to Move) | Double-Click untuk reset posisi">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="5 9 2 12 5 15"></polyline>
@@ -208,9 +204,6 @@
             <line x1="2" y1="12" x2="22" y2="12"></line>
             <line x1="12" y1="2" x2="12" y2="22"></line>
           </svg>
-        </div>
-        <div id="resize-grip" class="corner-tool-btn resize-grip" title="Tahan & Tarik untuk ubah ukuran klaster (Drag to Resize) | Double-Click untuk reset 100%">
-          <svg viewBox="0 0 16 16"><polygon points="0,0 16,0 0,16"/></svg>
         </div>
       </div>
       <div class="cluster-trim-top"></div>
@@ -260,22 +253,7 @@
               <line x1="7.5" y1="17.5" x2="15.5" y2="17.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
             </svg>
           </div>
-          <!-- 4. Vehicle Door Lock Indicator (Padlock) -->
-          <div id="ind-lock" class="ind-icon" title="Door Locks">
-            <svg id="svg-lock-closed" viewBox="0 0 24 24">
-              <path d="M7.5 10V6.5a4.5 4.5 0 0 1 9 0V10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
-              <rect x="5" y="10" width="14" height="11" rx="2.5"/>
-              <circle cx="12" cy="14.5" r="1.3" style="fill: var(--icon-bg, #181c26);"/>
-              <line x1="12" y1="14.5" x2="12" y2="17.5" stroke="var(--icon-bg, #181c26)" stroke-width="1.3" stroke-linecap="round"/>
-            </svg>
-            <svg id="svg-lock-open" viewBox="0 0 24 24" style="display: none;">
-              <path d="M7.5 10V5a4.5 4.5 0 0 1 9 0v2" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
-              <rect x="5" y="10" width="14" height="11" rx="2.5"/>
-              <circle cx="12" cy="14.5" r="1.3" style="fill: var(--icon-bg, #181c26);"/>
-              <line x1="12" y1="14.5" x2="12" y2="17.5" stroke="var(--icon-bg, #181c26)" stroke-width="1.3" stroke-linecap="round"/>
-            </svg>
-          </div>
-          <!-- 5. Automotive Check Engine Silhouette Block -->
+          <!-- 4. Automotive Check Engine Silhouette Block -->
           <div id="ind-engine" class="ind-icon" title="Check Engine / State">
             <svg viewBox="0 0 24 24">
               <path d="M22 13V9h-2V7a1 1 0 0 0-1-1h-4V4.5a.5.5 0 0 0-.5-.5h-3a.5.5 0 0 0-.5.5V6H7a1 1 0 0 0-1 1v2H4v4h2v4a1 1 0 0 0 1 1h2v1.5a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5V18h3v1.5a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5V18h1a1 1 0 0 0 1-1v-4h2zm-5 3H7V8h10v8z"/>
@@ -531,6 +509,6 @@
   <!-- YouTube IFrame API & Cloud Cabin Sync Library -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.3.5/mqtt.min.js"></script>
   <script src="https://www.youtube.com/iframe_api"></script>
-  <script src="script.js?v=2.3"></script>
+  <script src="script.js?v=3.5"></script>
 </body>
 </html>
